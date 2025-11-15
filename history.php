@@ -1,39 +1,61 @@
 <?php
 // session_start();
+// Baris pengecekan login dinonaktifkan untuk sementara
 // if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 //     header('location: login.php');
 //     exit;
 // }
 
-// --- Blok Kode untuk Mengambil & Menggabungkan Data dari Database ---
+// --- Blok Kode BARU untuk Filter Tanggal yang Diperbaiki ---
 $db_file = 'database/monitoring.db';
 $db = new SQLite3($db_file);
+$db->busyTimeout(5000);
 
-// Query BARU: Menggabungkan data dari tabel sensor dan tabel AI, lalu diurutkan berdasarkan waktu
-$query = "
+// 1. Cek apakah filter tanggal sedang digunakan. Default ke null (tidak ada filter).
+$filter_date = $_GET['filter_date'] ?? null; 
+
+// 2. Siapkan query dasar
+$base_query = "
 SELECT 
-    id, 
-    timestamp, 
-    event_type, 
-    temperature, 
-    gas_level, 
-    json_data,
+    id, timestamp, event_type, temperature, gas_level, json_data,
     strftime('%d %B %Y', timestamp, 'localtime') as date,
     strftime('%H:%M', timestamp, 'localtime') as time
 FROM (
-    -- Ambil data dari tabel sensor
     SELECT id, timestamp, 'Sensor' as event_type, temperature, gas_level, NULL as json_data FROM sensor_readings
-    
-    UNION ALL -- Gabungkan dengan
-    
-    -- Ambil data dari tabel AI
+    UNION ALL
     SELECT id, timestamp, 'AI Detection' as event_type, NULL as temperature, NULL as gas_level, json_data FROM ai_detections
 ) AS combined_events
-ORDER BY timestamp DESC
-LIMIT 30;
 ";
 
-$results = $db->query($query);
+$where_clause = "";
+$limit_clause = "";
+$order_clause = " ORDER BY timestamp DESC"; // Selalu urutkan dari terbaru
+
+// 3. Terapkan logika berdasarkan filter
+if ($filter_date !== null && !empty($filter_date)) {
+    // --- MODE FILTER AKTIF ---
+    // Tampilkan semua data untuk tanggal yang dipilih (tanpa LIMIT)
+    $page_title = "History untuk " . date('d F Y', strtotime($filter_date));
+    $where_clause = " WHERE date(timestamp, 'localtime') = :filter_date ";
+    
+    $query = $base_query . $where_clause . $order_clause;
+    $stmt = $db->prepare($query);
+    if (!$stmt) { die("Query preparation failed: " . $db->lastErrorMsg()); }
+    $stmt->bindValue(':filter_date', $filter_date, SQLITE3_TEXT);
+
+} else {
+    // --- MODE DEFAULT (TIDAK ADA FILTER) ---
+    // Tampilkan 100 entri terbaru
+    $page_title = "100 History Terbaru";
+    $limit_clause = " LIMIT 100"; // Batasi hasil agar tidak overload
+    
+    $query = $base_query . $order_clause . $limit_clause;
+    $stmt = $db->prepare($query);
+    if (!$stmt) { die("Query preparation failed: " . $db->lastErrorMsg()); }
+}
+
+// 4. Eksekusi query
+$results = $stmt->execute();
 // --- Akhir Blok Kode Database ---
 ?>
 <!DOCTYPE html>
@@ -70,23 +92,37 @@ $results = $db->query($query);
             </div>
             <div class="content-body">
                  <div class="status-history-card">
-                    <div class="card-header"><h3>Status History</h3></div>
+                    <div class="card-header">
+                        <h3><?php echo htmlspecialchars($page_title); ?></h3>
+                        
+                        <div class="filter-bar">
+                            <form action="history.php" method="GET" class="date-filter-form">
+                                <label for="filter_date">Pilih Tanggal:</label>
+                                <input type="date" id="filter_date" name="filter_date" value="<?php echo htmlspecialchars($filter_date ?? ''); ?>">
+                                <button type="submit" class="button primary">Filter</button>
+                                <a href="history.php" class="button">Reset</a>
+                            </form>
+                        </div>
+                    </div>
                     <div class="table-responsive">
                         <table>
                             <thead>
                                 <tr>
                                     <th>ID</th>
-                                    <th>Time</th>
-                                    <th>Input Type</th>
-                                    <th>Details</th>
+                                    <th>Waktu</th> <th>Tipe Input</th>
+                                    <th>Detail</th>
                                     <th>Status</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php while ($row = $results->fetchArray(SQLITE3_ASSOC)): ?>
+                                <?php 
+                                $row_count = 0;
+                                while ($row = $results->fetchArray(SQLITE3_ASSOC)): 
+                                $row_count++;
+                                ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars($row['id']); ?></td>
-                                        <td><?php echo htmlspecialchars($row['date']) . ' ' . htmlspecialchars($row['time']); ?></td>
+                                        <td><?php echo htmlspecialchars($row['date']) . ' ' . htmlspecialchars($row['time']); ?></td> 
                                         
                                         <?php if ($row['event_type'] == 'Sensor'): ?>
                                             <td>Sensor Reading</td>
@@ -96,17 +132,11 @@ $results = $db->query($query);
                                             </td>
                                             <td>
                                                 <?php
-                                                // --- LOGIKA STATUS BARU UNTUK SENSOR ---
                                                 $status = 'Normal'; $status_class = 'normal';
-                                                
-                                                // Cek Gas terlebih dahulu
                                                 if ($row['gas_level'] > 250) { $status = 'Danger'; $status_class = 'danger'; }
                                                 elseif ($row['gas_level'] > 150) { $status = 'Warning'; $status_class = 'warning'; }
-
-                                                // Cek Suhu, bisa menimpa status jika lebih parah
                                                 if ($row['temperature'] >= 30) { $status = 'Danger'; $status_class = 'danger'; }
                                                 elseif ($row['temperature'] >= 27 && $status_class != 'danger') { $status = 'Warning'; $status_class = 'warning'; }
-                                                
                                                 echo '<span class="status ' . $status_class . '">' . $status . '</span>';
                                                 ?>
                                             </td>
@@ -114,11 +144,9 @@ $results = $db->query($query);
                                             <td>AI Detection</td>
                                             <td>
                                                 <?php
-                                                // --- LOGIKA BARU UNTUK AI ---
                                                 $fire_detected = false;
                                                 if ($row['json_data']) {
                                                     $ai_data = json_decode($row['json_data']);
-                                                    // Cek apakah ada key 'fire_detected' dan nilainya true
                                                     if (isset($ai_data->fire_detected) && $ai_data->fire_detected) {
                                                         $fire_detected = true;
                                                     }
@@ -138,11 +166,34 @@ $results = $db->query($query);
                                         <?php endif; ?>
                                     </tr>
                                 <?php endwhile; ?>
+                                
+                                <?php if ($row_count == 0): ?>
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; color: #888;">
+                                            <?php if ($filter_date !== null): ?>
+                                                Tidak ada data yang ditemukan untuk tanggal ini.
+                                            <?php else: ?>
+                                                Database history masih kosong.
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endif; ?>
+
                                 <?php $db->close(); ?>
                             </tbody>
                         </table>
                     </div>
-                    <div class="table-footer"><span>Showing last 30 events</span></div>
+                    <div class="table-footer">
+                        <span>
+                            <?php 
+                            if ($filter_date !== null && !empty($filter_date)) {
+                                echo "Menampilkan $row_count hasil untuk tanggal " . htmlspecialchars(date('d F Y', strtotime($filter_date)));
+                            } else {
+                                echo "Menampilkan $row_count data history terbaru (Maks 100)";
+                            }
+                            ?>
+                        </span>
+                    </div>
                 </div>
             </div>
         </div>

@@ -127,12 +127,17 @@ body {
 .chart-controls { margin-bottom: 10px;}
 .chart-controls span { margin-right: 20px; cursor: pointer; color: #888; font-weight: 500; padding-bottom: 5px; }
 .chart-controls span.active { color: #0052CC; border-bottom: 2px solid #0052CC; }
-.chart-container { /* Ganti dari .chart-placeholder */
-    position: relative; /* Diperlukan oleh Chart.js */
-    height: 250px; /* Atur tinggi sesuai keinginan */
-    width: 100%;   /* Pastikan lebar penuh */
+
+/* PERBAIKAN: Mengganti .chart-placeholder dengan .chart-container
+   dan mengatur tinggi (height) di sini.
+*/
+.chart-container {
+    position: relative;
+    height: 300px; /* Atur tinggi grafik di sini */
+    width: 100%;
     margin-top: 20px;
 }
+
 .card-link { text-decoration: none; color: inherit; display: block; }
 .card-link .card:hover { transform: translateY(-5px); box-shadow: 0 8px 15px rgba(0,0,0,0.08); cursor: pointer; }
 
@@ -155,6 +160,25 @@ table td { color: #333; font-weight: 500; }
 tr.danger-row { background-color: #FFF9F9; }
 tr.danger-row td:first-child { border-left: 3px solid #C72B2B; }
 .table-footer { padding-top: 20px; color: #888; }
+
+/* --- History Page Filter Form --- */
+.date-filter-form {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.date-filter-form label {
+    font-weight: 500;
+    color: #555;
+}
+.date-filter-form input[type="date"] {
+    padding: 8px 10px;
+    border: 1px solid #EAECEF;
+    border-radius: 8px;
+    background-color: #F7F8FC;
+    font-family: 'Poppins', sans-serif;
+    color: #333;
+}
 
 /* --- Settings Page Styles --- */
 .settings-grid {
@@ -290,12 +314,19 @@ body.dark-theme .search-box,
 body.dark-theme .date-picker,
 body.dark-theme .settings-form input[type="text"],
 body.dark-theme .settings-form input[type="email"],
-body.dark-theme .settings-form input[type="password"],
-body.dark-theme .chart-placeholder {
+body.dark-theme .settings-form input[type="password"] {
     background-color: #252525;
     border-color: #333;
     color: #e0e0e0;
 }
+/* PERBAIKAN: Memastikan .chart-container di dark mode 
+    tidak memiliki background aneh (akan mewarisi dari .card)
+*/
+body.dark-theme .chart-container { 
+    background-color: transparent; /* Hapus/ubah background agar konsisten */
+    border-color: transparent;
+}
+
 body.dark-theme .status.normal { background-color: rgba(0, 82, 204, 0.3); color: #8cbaff; }
 body.dark-theme .status.danger { background-color: rgba(199, 43, 43, 0.3); color: #ff9e9e; }
 body.dark-theme .status.warning { background-color: rgba(185, 137, 0, 0.3); color: #ffe58f; }
@@ -303,7 +334,15 @@ body.dark-theme .status.warning { background-color: rgba(185, 137, 0, 0.3); colo
 body.dark-theme tr.danger-row { background-color: #2a2121; }
 body.dark-theme tr.danger-row td:first-child { border-left-color: #C72B2B; }
 
-/* === TAMBAHKAN KODE INI DI AKHIR css/style.css === */
+/* Dark theme for history filter */
+body.dark-theme .date-filter-form label {
+    color: #a0a0a0;
+}
+body.dark-theme .date-filter-form input[type="date"] {
+    background-color: #252525;
+    border-color: #333;
+    color: #e0e0e0;
+}
 
 /* --- Notification Banner Styles --- */
 .notification-banner {
@@ -314,30 +353,24 @@ body.dark-theme tr.danger-row td:first-child { border-left-color: #C72B2B; }
     margin-bottom: 20px;
     color: #fff;
 }
-
 .notification-banner.warning {
     background-color: #FFAA00; /* Kuning */
 }
-
 .notification-banner.danger {
     background-color: #D92D20; /* Merah */
 }
-
 .notification-banner i {
     font-size: 28px;
     margin-right: 15px;
 }
-
 .notification-text strong {
     display: block;
     font-weight: 600;
 }
-
 .notification-text span {
     font-size: 13px;
     opacity: 0.9;
 }
-
 
 /* --- Dynamic Card Color Styles --- */
 .card.warning {
@@ -347,7 +380,6 @@ body.dark-theme tr.danger-row td:first-child { border-left-color: #C72B2B; }
 .card.warning h3, .card.warning p {
     color: #B98900;
 }
-
 .card.danger {
     background-color: #FFF9F9;
     border-left: 4px solid #D92D20;
@@ -365,7 +397,6 @@ body.dark-theme .card.warning h3,
 body.dark-theme .card.warning p {
     color: #ffc74b;
 }
-
 body.dark-theme .card.danger {
     background-color: #2a2121;
     border-left-color: #D92D20;
