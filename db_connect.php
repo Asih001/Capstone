@@ -1,6 +1,6 @@
 <?php
 
-$host = '127.0.0.1';
+$host = '103.250.11.139';
 $db   = 'shieldweb';
 $user = 'root';          
 $pass = '';              
