@@ -2,8 +2,8 @@
 
 $host = '103.250.11.139';
 $db   = 'shieldweb';
-$user = 'root';          
-$pass = '';              
+$user = 'shieldweb';          
+$pass = '12345678';              
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
