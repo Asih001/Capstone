@@ -1,35 +1,50 @@
 <?php
-// --- Blok Kode untuk Mengambil Data AWAL (Hourly) ---
-$db_file = 'database/monitoring.db';
+require_once 'db_connect.php';
+
 $initial_data = [
     'latest' => ['temperature' => 0, 'gas_level' => 0],
     'history' => ['labels' => [], 'tempData' => [], 'gasData' => []],
 ];
+
 try {
-    $db = new SQLite3($db_file); $db->busyTimeout(5000);
     $query_latest = "SELECT temperature, gas_level FROM sensor_readings ORDER BY timestamp DESC LIMIT 1";
-    $latest = $db->querySingle($query_latest, true); if ($latest) $initial_data['latest'] = $latest;
+    $stmt_latest = $pdo->query($query_latest);
+    $latest = $stmt_latest->fetch(PDO::FETCH_ASSOC);
     
-    $query_history = "SELECT strftime('%H:%M', timestamp, 'localtime') as time_label, temperature, gas_level
+    if ($latest) {
+        $initial_data['latest'] = $latest;
+    }
+
+    $query_history = "SELECT DATE_FORMAT(timestamp, '%H:%i') as time_label, temperature, gas_level
                       FROM sensor_readings
                       ORDER BY timestamp DESC
                       LIMIT 24";
-    $history_results = $db->query($query_history);
-    $temp_labels = []; $temp_temp_data = []; $temp_gas_data = [];
-    while ($row = $history_results->fetchArray(SQLITE3_ASSOC)) { $temp_labels[] = $row['time_label']; $temp_temp_data[] = $row['temperature']; $temp_gas_data[] = $row['gas_level']; }
+    
+    $stmt_history = $pdo->query($query_history);
+    
+    $temp_labels = []; 
+    $temp_temp_data = []; 
+    $temp_gas_data = [];
+
+    while ($row = $stmt_history->fetch(PDO::FETCH_ASSOC)) {
+        $temp_labels[] = $row['time_label'];
+        $temp_temp_data[] = $row['temperature'];
+        $temp_gas_data[] = $row['gas_level'];
+    }
+
     $initial_data['history']['labels'] = array_reverse($temp_labels);
     $initial_data['history']['tempData'] = array_reverse($temp_temp_data);
     $initial_data['history']['gasData'] = array_reverse($temp_gas_data);
-    $db->close();
-} catch (Exception $e) { /* Abaikan error awal */ }
-// --- Akhir Blok Data AWAL ---
 
-// --- Logika Status AWAL ---
+} catch (PDOException $e) {
+}
 $gas_level = $initial_data['latest']['gas_level'];
 $temperature = $initial_data['latest']['temperature'];
 $gas_status_class = ''; $temp_status_class = ''; $overall_status = 'normal'; $notification_message = '';
+
 if ($gas_level > 250) { $gas_status_class = 'danger'; $overall_status = 'danger'; $notification_message = 'ALERT! Gas level critical.'; }
 elseif ($gas_level > 150) { $gas_status_class = 'warning'; $overall_status = 'warning'; $notification_message = 'Warning! Gas level high.'; }
+
 if ($temperature >= 30) { $temp_status_class = 'danger'; if ($overall_status != 'danger') { $overall_status = 'danger'; $notification_message = 'ALERT! Temperature critical.'; } }
 elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_status == 'normal') { $overall_status = 'warning'; $notification_message = 'Warning! Temperature high.'; } }
 // --- Akhir Logika AWAL ---
@@ -92,7 +107,7 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
                             <span data-timeframe="daily">Daily</span>
                             <span data-timeframe="weekly">Weekly</span>
                         </div>
-                        <div class="chart-container"> <canvas id="heatChart"></canvas> </div>
+                        <div class="chart-container"> <canvas id="heatChart" height="250"></canvas> </div>
                     </div>
                     <div class="card chart-card">
                         <h3>Gas Sensor History</h3>
@@ -101,7 +116,7 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
                             <span data-timeframe="daily">Daily</span>
                             <span data-timeframe="weekly">Weekly</span>
                         </div>
-                         <div class="chart-container"> <canvas id="gasChart"></canvas> </div>
+                         <div class="chart-container"> <canvas id="gasChart" height="250"></canvas> </div>
                     </div>
                 </div>
             </div>
@@ -111,7 +126,7 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
 <script>
     // --- Variabel Global ---
     let heatChart = null, gasChart = null;
-    let fetchDataInterval = null; // Variabel untuk interval real-time
+    let fetchDataInterval = null; 
 
     // --- Inisialisasi Chart.js ---
     const initialLabels = <?php echo json_encode($initial_data['history']['labels']); ?>;
@@ -140,10 +155,17 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
                 type: 'line', 
                 data: { 
                     labels: initialLabels, 
-                    datasets: [{ label: 'Temperature (°C)', data: initialTempData, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', tension: 0.1, fill: true }] 
+                    datasets: [{ 
+                        label: 'Temperature (°C)', 
+                        data: initialTempData, 
+                        borderColor: 'rgb(255, 99, 132)', 
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)', 
+                        tension: 0.1, 
+                        fill: true 
+                    }] 
                 }, 
                 options: { 
-                    maintainAspectRatio: false, // Menjaga tinggi canvas
+                    maintainAspectRatio: false, 
                     animation: false, 
                     scales: { 
                         x: { title: { display: true, text: 'Waktu (24 data terakhir)' } }, 
@@ -158,10 +180,17 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
                 type: 'line', 
                 data: { 
                     labels: initialLabels, 
-                    datasets: [{ label: 'Gas Level (ppm)', data: initialGasData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.2)', tension: 0.1, fill: true }] 
+                    datasets: [{ 
+                        label: 'Gas Level (ppm)', 
+                        data: initialGasData, 
+                        borderColor: 'rgb(54, 162, 235)', 
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)', 
+                        tension: 0.1, 
+                        fill: true 
+                    }] 
                 }, 
                 options: { 
-                    maintainAspectRatio: false, // Menjaga tinggi canvas
+                    maintainAspectRatio: false, 
                     animation: false, 
                     scales: { 
                         x: { title: { display: true, text: 'Waktu (24 data terakhir)' } }, 
@@ -171,19 +200,16 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
             });
         }
 
-        // --- PERBAIKAN: Tambahkan kode ini untuk memperbaiki masalah resize ---
+        // Fitur Resize saat sidebar berubah
         const sidebar = document.querySelector('.sidebar');
         if (sidebar) {
             sidebar.addEventListener('transitionend', () => {
-                // Setelah transisi sidebar (membuka/menutup) selesai,
-                // paksa kedua chart untuk menggambar ulang ukurannya.
                 if (heatChart) heatChart.resize();
                 if (gasChart) gasChart.resize();
             });
         }
-        // --- Akhir Perbaikan ---
 
-        startRealtimeUpdates(); // Mulai update real-time
+        startRealtimeUpdates(); 
 
         document.getElementById('heat-controls').addEventListener('click', handleChartControlClick);
         document.getElementById('gas-controls').addEventListener('click', handleChartControlClick);
@@ -240,7 +266,7 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
     // --- Fungsi Fetch Data Berkala (Real-time) ---
     async function fetchRealtimeData() {
         try {
-            // Panggilan ke API gabungan
+            // Panggilan ke API gabungan (MySQL)
             const response = await fetch('get_chart_data.php?timeframe=hourly&_=' + new Date().getTime());
             if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
             const data = await response.json();
@@ -266,8 +292,10 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
             if (chart) {
                 chart.data.labels = data.labels;
                 chart.data.datasets[0].data = data.data;
+                
                 const newXAxisLabel = (timeframe === 'daily') ? 'Tanggal (30 Hari Terakhir)' : 'Minggu (1 Tahun Terakhir)';
                 updateChartXAxis(chart, newXAxisLabel);
+                
                 chart.update();
             }
         } catch (error) {
@@ -292,13 +320,8 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         if (timeframe === 'hourly') {
             updateChartXAxis(chart, 'Waktu (24 data terakhir)');
             
-            let initialChartLabels = (sensorType === 'heat') ? initialLabels : initialLabels;
-            let initialChartData = (sensorType === 'heat') ? initialTempData : initialGasData;
-            
-            chart.data.labels = initialChartLabels;
-            chart.data.datasets[0].data = initialChartData;
-            chart.update();
-            
+            // Untuk mode hourly, kita fetch ulang data realtime agar grafik kembali ke kondisi awal
+            fetchRealtimeData(); 
             startRealtimeUpdates(); 
         } else {
             stopRealtimeUpdates(); 

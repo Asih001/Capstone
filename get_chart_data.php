@@ -1,57 +1,44 @@
 <?php
-// File: get_chart_data.php
-// API GABUNGAN: Mengurus data real-time (hourly) DAN data historis (daily/weekly)
 
 header('Content-Type: application/json');
+require_once 'db_connect.php'; 
 
-$db_file = 'database/monitoring.db';
+$timeframe = $_GET['timeframe'] ?? 'hourly';
 $response = ['error' => null];
 
 try {
-    $db = new SQLite3($db_file);
-    $db->busyTimeout(5000);
-
-    // Tentukan mode: 'hourly' (real-time) atau 'daily'/'weekly' (historis)
-    $timeframe = $_GET['timeframe'] ?? 'hourly'; // Default ke 'hourly'
-
     if ($timeframe === 'hourly') {
-        // --- MODE HOURLY (REAL-TIME) ---
-        // Mengembalikan data 'latest' untuk kartu DAN data 'history' untuk grafik
         $response = [
             'latest' => ['temperature' => 0, 'gas_level' => 0],
             'history' => ['labels' => [], 'tempData' => [], 'gasData' => []],
             'error' => null
         ];
 
-        // 1. Ambil data TERAKHIR untuk kartu
-        $query_latest = "SELECT temperature, gas_level FROM sensor_readings ORDER BY timestamp DESC LIMIT 1";
-        $latest = $db->querySingle($query_latest, true);
+        $stmt = $pdo->query("SELECT temperature, gas_level FROM sensor_readings ORDER BY timestamp DESC LIMIT 1");
+        $latest = $stmt->fetch();
         if ($latest) {
             $response['latest'] = $latest;
         }
 
-        // 2. Ambil data RIWAYAT (24 data terakhir) untuk grafik 'hourly'
-        $query_history = "SELECT strftime('%H:%M', timestamp, 'localtime') as time_label, temperature, gas_level 
-                          FROM sensor_readings 
-                          ORDER BY timestamp DESC 
-                          LIMIT 24";
-        $history_results = $db->query($query_history);
-        
-        $temp_labels = []; $temp_temp_data = []; $temp_gas_data = [];
-        while ($row = $history_results->fetchArray(SQLITE3_ASSOC)) {
-            $temp_labels[] = $row['time_label'];
-            $temp_temp_data[] = $row['temperature'];
-            $temp_gas_data[] = $row['gas_level'];
+        $sqlHistory = "SELECT DATE_FORMAT(timestamp, '%H:%i') as time_label, temperature, gas_level 
+                       FROM sensor_readings 
+                       ORDER BY timestamp DESC 
+                       LIMIT 24";
+        $stmtHistory = $pdo->query($sqlHistory);
+        $historyData = $stmtHistory->fetchAll();
+
+        $labels = []; $tempData = []; $gasData = [];
+        foreach ($historyData as $row) {
+            $labels[] = $row['time_label'];
+            $tempData[] = $row['temperature'];
+            $gasData[] = $row['gas_level'];
         }
-        // Balik urutan agar data tertua di awal (cocok untuk chart)
-        $response['history']['labels'] = array_reverse($temp_labels);
-        $response['history']['tempData'] = array_reverse($temp_temp_data);
-        $response['history']['gasData'] = array_reverse($temp_gas_data);
+
+        $response['history']['labels'] = array_reverse($labels);
+        $response['history']['tempData'] = array_reverse($tempData);
+        $response['history']['gasData'] = array_reverse($gasData);
 
     } else {
-        // --- MODE HISTORIS (DAILY / WEEKLY) ---
-        // Hanya mengembalikan data untuk satu grafik
-        
         $sensor_type = $_GET['sensor'] ?? '';
         if ($sensor_type !== 'heat' && $sensor_type !== 'gas') {
             throw new Exception('Invalid sensor type. Must be "heat" or "gas".');
@@ -60,38 +47,39 @@ try {
 
         $labels = [];
         $values = [];
+        $sql = "";
 
         if ($timeframe === 'daily') {
-            $query = "SELECT strftime('%Y-%m-%d', timestamp, 'localtime') as time_label, AVG($column) as value
-                      FROM sensor_readings
-                      WHERE timestamp >= datetime('now', '-30 days', 'localtime')
-                      GROUP BY time_label ORDER BY time_label ASC";
+            // Rata-rata harian (30 hari terakhir)
+            $sql = "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d') as time_label, AVG($column) as value
+                    FROM sensor_readings
+                    WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                    GROUP BY time_label ORDER BY time_label ASC";
         } elseif ($timeframe === 'weekly') {
-            $query = "SELECT strftime('%Y-W%W', timestamp, 'localtime') as time_label, AVG($column) as value
-                      FROM sensor_readings
-                      WHERE timestamp >= datetime('now', '-1 year', 'localtime')
-                      GROUP BY time_label ORDER BY time_label ASC";
+            $sql = "SELECT DATE_FORMAT(timestamp, '%Y-W%u') as time_label, AVG($column) as value
+                    FROM sensor_readings
+                    WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
+                    GROUP BY time_label ORDER BY time_label ASC";
         } else {
-            throw new Exception("Invalid timeframe. Must be 'daily' or 'weekly'.");
+            throw new Exception("Invalid timeframe.");
         }
 
-        $results = $db->query($query);
-        if (!$results) { throw new Exception("Query failed: " . $db->lastErrorMsg()); }
+        $stmt = $pdo->query($sql);
+        $data = $stmt->fetchAll();
 
-        while ($row = $results->fetchArray(SQLITE3_ASSOC)) {
+        foreach ($data as $row) {
             $labels[] = $row['time_label'];
             $values[] = round($row['value'], 1);
         }
-        $response = ['labels' => $labels, 'data' => $values]; // Respons simpel
+        $response = ['labels' => $labels, 'data' => $values];
     }
 
-} catch (Exception $e) {
+} catch (PDOException $e) {
     $response = ['error' => $e->getMessage()];
     http_response_code(500);
-} finally {
-    if (isset($db)) {
-        $db->close();
-    }
+} catch (Exception $e) {
+    $response = ['error' => $e->getMessage()];
+    http_response_code(400);
 }
 
 echo json_encode($response);

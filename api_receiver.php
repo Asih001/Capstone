@@ -1,67 +1,67 @@
 <?php
-// api_receiver.php - Endpoint untuk menerima data dari hardware
+
 header('Content-Type: application/json');
 
-// 1. Konfigurasi Database
-$db_file = 'database/monitoring.db';
-$response = ['success' => false, 'message' => 'Unknown error'];
+require_once 'db_connect.php'; 
 
-// 2. Cek Metode Request (Sebaiknya gunakan POST untuk pengiriman data)
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405); // Method Not Allowed
+    http_response_code(405); 
     echo json_encode(['success' => false, 'message' => 'Method Not Allowed. Use POST.']);
     exit;
 }
 
-// 3. Ambil Data yang Dikirim
-// Opsi A: Jika hardware mengirim data sebagai JSON raw body (paling umum untuk IoT modern)
 $json_input = file_get_contents('php://input');
 $data = json_decode($json_input, true);
-
-// Opsi B: Jika hardware mengirim sebagai form-data (application/x-www-form-urlencoded)
-// $data = $_POST;
-
-// 4. Validasi Data
-// Pastikan 'temperature' dan 'gas_level' ada dalam data yang diterima
-if (!isset($data['temperature']) || !isset($data['gas_level'])) {
-    http_response_code(400); // Bad Request
-    echo json_encode(['success' => false, 'message' => 'Incomplete data. "temperature" and "gas_level" are required.']);
-    exit;
-}
-
-$temp = filter_var($data['temperature'], FILTER_VALIDATE_FLOAT);
-$gas = filter_var($data['gas_level'], FILTER_VALIDATE_FLOAT);
-
-if ($temp === false || $gas === false) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Invalid data format. Values must be numbers.']);
-    exit;
-}
+$response = ['success' => false, 'message' => 'Invalid data structure'];
 
 try {
-    // 5. Simpan ke Database
-    $db = new SQLite3($db_file);
-    $db->busyTimeout(5000);
+    if (isset($data['temperature']) && isset($data['gas_level'])) {
+        
+        $temp = filter_var($data['temperature'], FILTER_VALIDATE_FLOAT);
+        $gas = filter_var($data['gas_level'], FILTER_VALIDATE_FLOAT);
 
-    $stmt = $db->prepare("INSERT INTO sensor_readings (temperature, gas_level) VALUES (:temp, :gas)");
-    $stmt->bindValue(':temp', $temp, SQLITE3_FLOAT);
-    $stmt->bindValue(':gas', $gas, SQLITE3_FLOAT);
+        if ($temp === false || $gas === false) {
+            http_response_code(400);
+            throw new Exception("Invalid sensor values. Must be numbers.");
+        }
 
-    if ($stmt->execute()) {
-        http_response_code(201); // Created
-        $response = ['success' => true, 'message' => 'Data inserted successfully'];
+        $sql = "INSERT INTO sensor_readings (temperature, gas_level) VALUES (:temp, :gas)";
+        $stmt = $pdo->prepare($sql);
+        
+        if ($stmt->execute([':temp' => $temp, ':gas' => $gas])) {
+            http_response_code(201); // Created
+            $response = ['success' => true, 'message' => 'Sensor data saved to MySQL'];
+        } else {
+            throw new Exception("Failed to insert sensor data.");
+        }
+
+    } elseif (isset($data['json_data'])) {
+        
+        $sql = "INSERT INTO ai_detections (json_data, image_path) VALUES (:json, :img)";
+        $stmt = $pdo->prepare($sql);
+        
+        // Pastikan json_data formatnya string
+        $json_string = is_array($data['json_data']) ? json_encode($data['json_data']) : $data['json_data'];
+        $image_path = $data['image_path'] ?? null; // Opsional
+
+        if ($stmt->execute([':json' => $json_string, ':img' => $image_path])) {
+            http_response_code(201); // Created
+            $response = ['success' => true, 'message' => 'AI data saved to MySQL'];
+        } else {
+            throw new Exception("Failed to insert AI data.");
+        }
+        
     } else {
-        throw new Exception("Database insert failed: " . $db->lastErrorMsg());
+        // Jika data tidak cocok dengan format sensor maupun AI
+        http_response_code(400);
+        $response['message'] = 'Incomplete data. Required fields missing.';
     }
 
 } catch (Exception $e) {
     http_response_code(500); // Internal Server Error
-    $response = ['success' => false, 'message' => $e->getMessage()];
-} finally {
-    if (isset($db)) {
-        $db->close();
-    }
+    $response = ['success' => false, 'message' => 'Server Error: ' . $e->getMessage()];
 }
 
+// Kirim balasan ke Hardware
 echo json_encode($response);
 ?>

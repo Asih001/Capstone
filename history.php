@@ -1,25 +1,14 @@
 <?php
-// session_start();
-// Baris pengecekan login dinonaktifkan untuk sementara
-// if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-//     header('location: login.php');
-//     exit;
-// }
+require_once 'db_connect.php'; 
 
-// --- Blok Kode BARU untuk Filter Tanggal yang Diperbaiki ---
-$db_file = 'database/monitoring.db';
-$db = new SQLite3($db_file);
-$db->busyTimeout(5000);
+$filter_date = $_GET['filter_date'] ?? null;
+$params = []; 
 
-// 1. Cek apakah filter tanggal sedang digunakan. Default ke null (tidak ada filter).
-$filter_date = $_GET['filter_date'] ?? null; 
-
-// 2. Siapkan query dasar
 $base_query = "
 SELECT 
     id, timestamp, event_type, temperature, gas_level, json_data,
-    strftime('%d %B %Y', timestamp, 'localtime') as date,
-    strftime('%H:%M', timestamp, 'localtime') as time
+    DATE_FORMAT(timestamp, '%d %M %Y') as date,
+    DATE_FORMAT(timestamp, '%H:%i') as time
 FROM (
     SELECT id, timestamp, 'Sensor' as event_type, temperature, gas_level, NULL as json_data FROM sensor_readings
     UNION ALL
@@ -29,34 +18,28 @@ FROM (
 
 $where_clause = "";
 $limit_clause = "";
-$order_clause = " ORDER BY timestamp DESC"; // Selalu urutkan dari terbaru
+$order_clause = " ORDER BY timestamp DESC";
 
-// 3. Terapkan logika berdasarkan filter
 if ($filter_date !== null && !empty($filter_date)) {
     // --- MODE FILTER AKTIF ---
-    // Tampilkan semua data untuk tanggal yang dipilih (tanpa LIMIT)
     $page_title = "History untuk " . date('d F Y', strtotime($filter_date));
-    $where_clause = " WHERE date(timestamp, 'localtime') = :filter_date ";
-    
-    $query = $base_query . $where_clause . $order_clause;
-    $stmt = $db->prepare($query);
-    if (!$stmt) { die("Query preparation failed: " . $db->lastErrorMsg()); }
-    $stmt->bindValue(':filter_date', $filter_date, SQLITE3_TEXT);
+    // MySQL menggunakan fungsi DATE() untuk mengambil tanggal saja
+    $where_clause = " WHERE DATE(timestamp) = :filter_date ";
+    $params[':filter_date'] = $filter_date;
 
 } else {
-    // --- MODE DEFAULT (TIDAK ADA FILTER) ---
-    // Tampilkan 100 entri terbaru
+    // --- MODE DEFAULT ---
     $page_title = "100 History Terbaru";
-    $limit_clause = " LIMIT 100"; // Batasi hasil agar tidak overload
-    
-    $query = $base_query . $order_clause . $limit_clause;
-    $stmt = $db->prepare($query);
-    if (!$stmt) { die("Query preparation failed: " . $db->lastErrorMsg()); }
+    $limit_clause = " LIMIT 100";
 }
 
-// 4. Eksekusi query
-$results = $stmt->execute();
-// --- Akhir Blok Kode Database ---
+try {
+    $query = $base_query . $where_clause . $order_clause . $limit_clause;
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($params);
+} catch (PDOException $e) {
+    die("Database Error: " . $e->getMessage());
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -116,7 +99,8 @@ $results = $stmt->execute();
                             <tbody>
                                 <?php 
                                 $row_count = 0;
-                                while ($row = $results->fetchArray(SQLITE3_ASSOC)): 
+                                // Loop menggunakan fetch PDO
+                                while ($row = $stmt->fetch(PDO::FETCH_ASSOC)): 
                                 $row_count++;
                                 ?>
                                     <tr>
@@ -134,8 +118,11 @@ $results = $stmt->execute();
                                                 $status = 'Normal'; $status_class = 'normal';
                                                 if ($row['gas_level'] > 250) { $status = 'Danger'; $status_class = 'danger'; }
                                                 elseif ($row['gas_level'] > 150) { $status = 'Warning'; $status_class = 'warning'; }
+                                                
+                                                // Logika suhu menimpa gas jika lebih parah
                                                 if ($row['temperature'] >= 30) { $status = 'Danger'; $status_class = 'danger'; }
                                                 elseif ($row['temperature'] >= 27 && $status_class != 'danger') { $status = 'Warning'; $status_class = 'warning'; }
+                                                
                                                 echo '<span class="status ' . $status_class . '">' . $status . '</span>';
                                                 ?>
                                             </td>
@@ -144,12 +131,17 @@ $results = $stmt->execute();
                                             <td>
                                                 <?php
                                                 $fire_detected = false;
-                                                if ($row['json_data']) {
-                                                    $ai_data = json_decode($row['json_data']);
-                                                    if (isset($ai_data->fire_detected) && $ai_data->fire_detected) {
-                                                        $fire_detected = true;
-                                                    }
+                                                // MySQL JSON otomatis di-decode di beberapa driver, tapi untuk aman kita cek
+                                                // Jika $row['json_data'] sudah array/object, gunakan langsung. Jika string, decode.
+                                                $ai_data = is_string($row['json_data']) ? json_decode($row['json_data']) : $row['json_data'];
+
+                                                // Akses sebagai object atau array tergantung hasil decode
+                                                if (is_object($ai_data)) {
+                                                    if (isset($ai_data->fire_detected) && $ai_data->fire_detected) $fire_detected = true;
+                                                } elseif (is_array($ai_data)) {
+                                                    if (isset($ai_data['fire_detected']) && $ai_data['fire_detected']) $fire_detected = true;
                                                 }
+
                                                 echo 'Pengecekan Api: <strong>' . ($fire_detected ? 'Iya' : 'Tidak Ada') . '</strong>';
                                                 ?>
                                             </td>
@@ -177,8 +169,6 @@ $results = $stmt->execute();
                                         </td>
                                     </tr>
                                 <?php endif; ?>
-
-                                <?php $db->close(); ?>
                             </tbody>
                         </table>
                     </div>
