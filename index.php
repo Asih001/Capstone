@@ -224,8 +224,6 @@ if ($fire && $initial_data['ai']['image']) {
         } else {
             // Sudah lewat 5 menit, reset state
             isFireState = false;
-            // Jangan reset currentAIImageSrc ke default di sini agar transisi halus,
-            // tapi nanti yang dirender adalah placeholder jika status normal
         }
 
         // --- Render Tampilan Kartu AI ---
@@ -234,16 +232,19 @@ if ($fire && $initial_data['ai']['image']) {
         const aiStatus = document.getElementById('aiStatus');
 
         if (isFireState) {
+            // MODE BAHAYA: Tampilkan merah & gambar kejadian
             aiCard.className = 'card danger';
             aiStatus.style.color = '#C72B2B';
             aiStatus.innerHTML = "<i class='bx bxs-hot'></i> Fire Detected!";
             
             // Paksa gunakan gambar dari variabel global yang persisten
             // Tambahkan timestamp hanya jika path berubah untuk menghindari reload berkedip
+            // PERBAIKAN UTAMA: Gunakan currentAIImageSrc, BUKAN reset ke fire_centered
             if (!aiImage.src.includes(currentAIImageSrc)) {
                  aiImage.src = currentAIImageSrc + '?t=' + new Date().getTime();
             }
         } else {
+            // MODE NORMAL
             aiCard.className = 'card'; 
             aiStatus.style.color = '#22A06B';
             aiStatus.innerHTML = "<i class='bx bx-check-circle'></i> Normal";
@@ -260,6 +261,7 @@ if ($fire && $initial_data['ai']['image']) {
         if (gas > 250) { gCls = 'danger'; overall = 'danger'; msg = 'ALERT! Gas critical.'; }
         else if (gas > 150) { gCls = 'warning'; overall = 'warning'; msg = 'Warning! Gas high.'; }
         
+        // Gunakan isFireState (hasil hitungan waktu) bukan data.ai.fire_detected mentah
         if (isFireState) { overall = 'danger'; msg = 'DANGER! Fire Detected by AI!'; } 
         else if (temp >= 30) { tCls = 'danger'; if (overall != 'danger') { overall = 'danger'; msg = 'ALERT! Temp critical.'; } } 
         else if (temp >= 27) { tCls = 'warning'; if (overall == 'normal') { overall = 'warning'; msg = 'Warning! Temp high.'; } }
