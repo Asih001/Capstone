@@ -72,7 +72,6 @@ try {
                 <li class="nav-item active"><a href="history.php"><i class='bx bx-history'></i><span>History</span></a></li>
                 <li class="nav-item"><a href="setting.php"><i class='bx bx-cog'></i><span>Setting</span></a></li>
             </ul>
-            <div class="logout nav-item"><a href="logout.php"><i class='bx bx-log-out'></i><span>Log Out</span></a></div>
         </div>
         <div class="main-content">
             <div class="header">
