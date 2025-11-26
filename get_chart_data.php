@@ -12,42 +12,45 @@ try {
         // --- MODE REAL-TIME ---
         $response = [
             'latest' => ['temperature' => 0, 'gas_level' => 0],
-            'ai' => ['fire_detected' => false, 'image' => null, 'timestamp' => null], // Tambahan Data AI
+            'ai' => ['fire_detected' => false, 'image' => null], // Slot untuk data AI
             'history' => ['labels' => [], 'tempData' => [], 'gasData' => []],
             'error' => null
         ];
 
         // 1. Ambil Data Sensor Terakhir
         $stmt = $pdo->query("SELECT temperature, gas_level FROM sensor_readings ORDER BY timestamp DESC LIMIT 1");
-        $latest = $stmt->fetch();
+        $latest = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($latest) $response['latest'] = $latest;
 
-        // 2. Ambil Data AI Terakhir (TAMBAHAN PENTING)
-        $stmtAI = $pdo->query("SELECT json_data, image_path, timestamp FROM ai_detections ORDER BY timestamp DESC LIMIT 1");
-        $latestAI = $stmtAI->fetch();
+        // 2. Ambil Data AI Terakhir (INI YANG PENTING UNTUK GAMBAR)
+        $stmtAI = $pdo->query("SELECT json_data, image_path FROM ai_detections ORDER BY timestamp DESC LIMIT 1");
+        $latestAI = $stmtAI->fetch(PDO::FETCH_ASSOC);
         
         if ($latestAI) {
+            // Decode JSON dari kolom json_data
             $ai_json = json_decode($latestAI['json_data'], true);
-            // Cek apakah api terdeteksi (bisa dari key 'fire_detected' atau logika lain)
+            
+            // Cek status api
             $is_fire = false;
             if (isset($ai_json['fire_detected']) && $ai_json['fire_detected']) {
                 $is_fire = true;
             }
             
+            // Kirim data ke frontend
             $response['ai'] = [
                 'fire_detected' => $is_fire,
-                'image' => $latestAI['image_path'] ? 'uploads/' . $latestAI['image_path'] : null,
-                'timestamp' => $latestAI['timestamp']
+                // Kirim nama file saja, nanti JS yang nambahin 'uploads/'
+                'image' => $latestAI['image_path'] 
             ];
         }
 
-        // 3. Ambil Data Riwayat Grafik (UTC+7)
+        // 3. Ambil Data Riwayat Grafik
         $sqlHistory = "SELECT DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%H:%i') as time_label, 
                         temperature, gas_level 
                        FROM sensor_readings 
                        ORDER BY timestamp DESC LIMIT 24";
         $stmtHistory = $pdo->query($sqlHistory);
-        $historyData = $stmtHistory->fetchAll();
+        $historyData = $stmtHistory->fetchAll(PDO::FETCH_ASSOC);
 
         $labels = []; $tempData = []; $gasData = [];
         foreach ($historyData as $row) {
@@ -60,11 +63,11 @@ try {
         $response['history']['gasData'] = array_reverse($gasData);
 
     } else {
-        // ... (Bagian Mode Historis Daily/Weekly TETAP SAMA) ...
+        // --- MODE HISTORIS (Daily/Weekly) ---
         $sensor_type = $_GET['sensor'] ?? '';
         $column = ($sensor_type === 'heat') ? 'temperature' : 'gas_level';
+        $sql = "";
         
-        // ... (Kode query daily/weekly sama seperti sebelumnya) ...
         if ($timeframe === 'daily') {
             $sql = "SELECT DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%Y-%m-%d') as time_label, AVG($column) as value
                     FROM sensor_readings WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
@@ -75,16 +78,14 @@ try {
                     GROUP BY time_label ORDER BY time_label ASC";
         }
         $stmt = $pdo->query($sql);
-        $data = $stmt->fetchAll();
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $labels = []; $values = [];
         foreach ($data as $row) { $labels[] = $row['time_label']; $values[] = round($row['value'], 1); }
         $response = ['labels' => $labels, 'data' => $values];
     }
 
-} catch (PDOException $e) {
-    $response = ['error' => $e->getMessage()]; http_response_code(500);
 } catch (Exception $e) {
-    $response = ['error' => $e->getMessage()]; http_response_code(400);
+    $response = ['error' => $e->getMessage()]; http_response_code(500);
 }
 echo json_encode($response);
 ?>

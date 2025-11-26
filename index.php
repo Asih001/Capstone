@@ -1,30 +1,29 @@
 <?php
-// --- Konfigurasi Zona Waktu ---
 date_default_timezone_set('Asia/Jakarta'); 
 require_once 'db_connect.php';
 
 $initial_data = [
     'latest' => ['temperature' => 0, 'gas_level' => 0],
-    'ai' => ['fire_detected' => false, 'image' => null], // Inisialisasi Data AI
+    'ai' => ['fire_detected' => false, 'image' => null], 
     'history' => ['labels' => [], 'tempData' => [], 'gasData' => []],
 ];
 
 try {
-    // 1. Data Sensor Terakhir
+    // 1. Data Sensor
     $stmt = $pdo->query("SELECT temperature, gas_level FROM sensor_readings ORDER BY timestamp DESC LIMIT 1");
     $latest = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($latest) $initial_data['latest'] = $latest;
 
-    // 2. Data AI Terakhir (PHP)
+    // 2. Data AI (Ambil path gambar)
     $stmtAI = $pdo->query("SELECT json_data, image_path FROM ai_detections ORDER BY timestamp DESC LIMIT 1");
     $latestAI = $stmtAI->fetch(PDO::FETCH_ASSOC);
     if ($latestAI) {
         $ai_json = json_decode($latestAI['json_data'], true);
         $initial_data['ai']['fire_detected'] = (isset($ai_json['fire_detected']) && $ai_json['fire_detected']);
-        $initial_data['ai']['image'] = $latestAI['image_path'] ? 'uploads/' . $latestAI['image_path'] : null;
+        $initial_data['ai']['image'] = $latestAI['image_path']; // Simpan nama file saja
     }
 
-    // 3. Data Grafik Awal
+    // 3. Data Grafik
     $sqlHistory = "SELECT DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%H:%i') as time_label, temperature, gas_level 
                    FROM sensor_readings ORDER BY timestamp DESC LIMIT 24";
     $stmtHistory = $pdo->query($sqlHistory);
@@ -42,33 +41,23 @@ try {
 
 } catch (PDOException $e) { }
 
-// --- Logika Status Awal ---
+// Logika Status Awal PHP (Sama seperti sebelumnya)
 $gas = $initial_data['latest']['gas_level'];
 $temp = $initial_data['latest']['temperature'];
 $fire = $initial_data['ai']['fire_detected'];
+$gas_cls = ''; $temp_cls = ''; $ai_cls = ''; $overall_status = 'normal'; $notif_msg = '';
 
-// Tentukan Status Global (Termasuk AI)
-$gas_cls = ''; $temp_cls = ''; $ai_cls = ''; 
-$overall_status = 'normal'; $notif_msg = '';
+if ($fire) { $ai_cls = 'danger'; $overall_status = 'danger'; $notif_msg = 'DANGER! Fire Detected by AI Camera!'; }
+if ($gas > 250) { $gas_cls = 'danger'; if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Gas level critical.'; } } 
+elseif ($gas > 150) { $gas_cls = 'warning'; if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Gas level high.'; } }
+if ($temp >= 30) { $temp_cls = 'danger'; if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Temperature critical.'; } } 
+elseif ($temp >= 27) { $temp_cls = 'warning'; if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Temperature high.'; } }
 
-if ($fire) {
-    $ai_cls = 'danger'; 
-    $overall_status = 'danger'; 
-    $notif_msg = 'DANGER! Fire Detected by AI Camera!';
-}
-if ($gas > 250) { 
-    $gas_cls = 'danger'; 
-    if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Gas level critical.'; }
-} elseif ($gas > 150) { 
-    $gas_cls = 'warning'; 
-    if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Gas level high.'; }
-}
-if ($temp >= 30) { 
-    $temp_cls = 'danger'; 
-    if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Temperature critical.'; }
-} elseif ($temp >= 27) { 
-    $temp_cls = 'warning'; 
-    if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Temperature high.'; }
+// Tentukan sumber gambar awal
+$initial_img_src = 'fire_centered.jpg'; // Default
+if ($initial_data['ai']['image']) {
+    // Jika database punya record gambar, gunakan itu dari folder uploads
+    $initial_img_src = 'uploads/' . $initial_data['ai']['image'];
 }
 ?>
 <!DOCTYPE html>
@@ -106,7 +95,7 @@ if ($temp >= 30) {
                  <i id="notificationIcon" class='bx bxs-error-alt'></i>
                  <div class="notification-text">
                      <strong id="notificationMessage"><?php echo $notif_msg; ?></strong>
-                     <span id="notificationSubtext">System monitoring active...</span>
+                     <span id="notificationSubtext">Checking AI camera...</span>
                  </div>
             </div>
 
@@ -126,10 +115,10 @@ if ($temp >= 30) {
                         <div id="aiCard" class="card <?php echo $ai_cls; ?>">
                             <div class="video-placeholder" style="overflow: hidden; position: relative;">
                                 <img id="aiImage" 
-                                     src="<?php echo $initial_data['ai']['image'] ? $initial_data['ai']['image'] : 'fire_centered.jpg'; ?>" 
+                                     src="<?php echo $initial_img_src; ?>" 
                                      alt="AI Feed" 
-                                     style="width: 100%; height: 100%; object-fit: cover; position: absolute; top:0; left:0;">
-                            </div>
+                                     style="width: 100%; height: 100%; object-fit: cover; position: absolute; top:0; left:0;"
+                                     onerror="this.src='fire_centered.jpg'"> </div>
                             <p>AI Detection</p>
                             <p id="aiStatus" class="status-indicator" style="<?php echo $fire ? 'color:#C72B2B' : 'color:#22A06B'; ?>">
                                 <i class='bx <?php echo $fire ? 'bxs-hot' : 'bx-check-circle'; ?>'></i>
@@ -154,40 +143,23 @@ if ($temp >= 30) {
     </div>
 
 <script>
-    // --- Variabel Global ---
-    let heatChart = null, gasChart = null;
-    let fetchDataInterval = null; 
-
-    // --- Inisialisasi Chart.js ---
+    let heatChart = null, gasChart = null, fetchDataInterval = null; 
     const initialLabels = <?php echo json_encode($initial_data['history']['labels']); ?>;
     const initialTempData = <?php echo json_encode($initial_data['history']['tempData']); ?>;
     const initialGasData = <?php echo json_encode($initial_data['history']['gasData']); ?>;
 
-    function getSafeChartContext(canvasId) {
-        const canvas = document.getElementById(canvasId);
-        return canvas ? canvas.getContext('2d') : null;
-    }
-    function updateChartXAxis(chart, newLabel) {
-        if (chart) chart.options.scales.x.title = { display: true, text: newLabel };
-    }
+    function getSafeChartContext(id) { const c = document.getElementById(id); return c ? c.getContext('2d') : null; }
+    function updateChartXAxis(chart, label) { if(chart) chart.options.scales.x.title = { display: true, text: label }; }
     
     document.addEventListener('DOMContentLoaded', () => {
         const heatCtx = getSafeChartContext('heatChart');
-        if (heatCtx) {
-            heatChart = new Chart(heatCtx, { type: 'line', data: { labels: initialLabels, datasets: [{ label: 'Temperature (°C)', data: initialTempData, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', tension: 0.1, fill: true }] }, options: { maintainAspectRatio: false, animation: false, scales: { x: { title: { display: true, text: 'Waktu (24 data terakhir)' } }, y: { beginAtZero: false, title: { display: true, text: 'Temperature (°C)'} } } } });
-        }
+        if (heatCtx) heatChart = new Chart(heatCtx, { type: 'line', data: { labels: initialLabels, datasets: [{ label: 'Temperature (°C)', data: initialTempData, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', tension: 0.1, fill: true }] }, options: { maintainAspectRatio: false, animation: false, scales: { x: { title: { display: true, text: 'Waktu (24 data terakhir)' } }, y: { beginAtZero: false, title: { display: true, text: 'Temperature (°C)'} } } } });
+        
         const gasCtx = getSafeChartContext('gasChart');
-        if (gasCtx) {
-            gasChart = new Chart(gasCtx, { type: 'line', data: { labels: initialLabels, datasets: [{ label: 'Gas Level (ppm)', data: initialGasData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.2)', tension: 0.1, fill: true }] }, options: { maintainAspectRatio: false, animation: false, scales: { x: { title: { display: true, text: 'Waktu (24 data terakhir)' } }, y: { beginAtZero: true, title: { display: true, text: 'Gas (ppm)'} } } } });
-        }
+        if (gasCtx) gasChart = new Chart(gasCtx, { type: 'line', data: { labels: initialLabels, datasets: [{ label: 'Gas Level (ppm)', data: initialGasData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.2)', tension: 0.1, fill: true }] }, options: { maintainAspectRatio: false, animation: false, scales: { x: { title: { display: true, text: 'Waktu (24 data terakhir)' } }, y: { beginAtZero: true, title: { display: true, text: 'Gas (ppm)'} } } } });
 
         const sidebar = document.querySelector('.sidebar');
-        if (sidebar) {
-            sidebar.addEventListener('transitionend', () => {
-                if (heatChart) heatChart.resize();
-                if (gasChart) gasChart.resize();
-            });
-        }
+        if (sidebar) sidebar.addEventListener('transitionend', () => { if (heatChart) heatChart.resize(); if (gasChart) gasChart.resize(); });
 
         startRealtimeUpdates(); 
         document.getElementById('heat-controls').addEventListener('click', handleChartControlClick);
@@ -197,60 +169,53 @@ if ($temp >= 30) {
     function updateDashboardUI(data) {
         if (!data || !data.latest) return;
 
+        // 1. Update Nilai Sensor
         const gas = Math.round(data.latest.gas_level);
         const temp = parseFloat(data.latest.temperature).toFixed(1);
-        
-        // Update Nilai
         document.getElementById('gasValue').textContent = gas;
         document.getElementById('tempValue').textContent = temp;
 
-        // Update Kartu AI (Gambar & Status)
+        // 2. Update Kartu AI (LOGIKA GAMBAR DIPERBAIKI)
         if (data.ai) {
             const aiCard = document.getElementById('aiCard');
             const aiImage = document.getElementById('aiImage');
             const aiStatus = document.getElementById('aiStatus');
             const isFire = data.ai.fire_detected;
 
-            // Update Status
+            // Update Warna & Teks Status
             if (isFire) {
                 aiCard.className = 'card danger';
                 aiStatus.style.color = '#C72B2B';
                 aiStatus.innerHTML = "<i class='bx bxs-hot'></i> Fire Detected!";
             } else {
-                aiCard.className = 'card'; // Hapus kelas danger
+                aiCard.className = 'card'; 
                 aiStatus.style.color = '#22A06B';
                 aiStatus.innerHTML = "<i class='bx bx-check-circle'></i> Normal";
             }
 
-            // Update Gambar (Gunakan timestamp untuk mencegah cache browser)
+            // Update Gambar
+            // Jika DB mengirim nama file (contoh: 'ai_17326099.jpg'), kita tambahkan prefix 'uploads/'
+            // Jika DB null, kita gunakan 'fire_centered.jpg' yang ada di root
+            let newSrc = 'fire_centered.jpg'; 
             if (data.ai.image) {
-                aiImage.src = data.ai.image; // Path dari DB (uploads/...)
-            } else {
-                // Jika tidak ada gambar spesifik, bisa pakai default atau stream
-                aiImage.src = 'fire_centered.jpg?t=' + new Date().getTime(); 
+                newSrc = 'uploads/' + data.ai.image;
             }
+            // Tambahkan timestamp agar browser tidak cache gambar lama
+            aiImage.src = newSrc + '?t=' + new Date().getTime();
         }
 
-        // Logika Status Sensor & Notifikasi
+        // 3. Logika Status & Notifikasi (Sama seperti sebelumnya)
         let gCls = '', tCls = '', overall = 'normal', msg = '';
         if (gas > 250) { gCls = 'danger'; overall = 'danger'; msg = 'ALERT! Gas critical.'; }
         else if (gas > 150) { gCls = 'warning'; overall = 'warning'; msg = 'Warning! Gas high.'; }
         
-        // Prioritas Api > Suhu > Gas
-        if (data.ai && data.ai.fire_detected) {
-             overall = 'danger'; msg = 'DANGER! Fire Detected by AI!';
-        } else if (temp >= 30) { 
-            tCls = 'danger'; 
-            if (overall != 'danger') { overall = 'danger'; msg = 'ALERT! Temp critical.'; }
-        } else if (temp >= 27) { 
-            tCls = 'warning'; 
-            if (overall == 'normal') { overall = 'warning'; msg = 'Warning! Temp high.'; }
-        }
+        if (data.ai && data.ai.fire_detected) { overall = 'danger'; msg = 'DANGER! Fire Detected by AI!'; } 
+        else if (temp >= 30) { tCls = 'danger'; if (overall != 'danger') { overall = 'danger'; msg = 'ALERT! Temp critical.'; } } 
+        else if (temp >= 27) { tCls = 'warning'; if (overall == 'normal') { overall = 'warning'; msg = 'Warning! Temp high.'; } }
 
         document.getElementById('gasCard').className = 'card ' + gCls;
         document.getElementById('tempCard').className = 'card ' + tCls;
         
-        // Update Banner Notifikasi
         const notif = document.getElementById('notificationArea');
         if (overall !== 'normal') {
             notif.className = 'notification-banner ' + overall;
@@ -263,16 +228,8 @@ if ($temp >= 30) {
 
     function updateChartsRealtime(data) {
         if (data.history && Array.isArray(data.history.labels)) {
-            if (heatChart) {
-                heatChart.data.labels = data.history.labels;
-                heatChart.data.datasets[0].data = data.history.tempData;
-                heatChart.update();
-            }
-            if (gasChart) {
-                gasChart.data.labels = data.history.labels;
-                gasChart.data.datasets[0].data = data.history.gasData;
-                gasChart.update();
-            }
+            if (heatChart) { heatChart.data.labels = data.history.labels; heatChart.data.datasets[0].data = data.history.tempData; heatChart.update(); }
+            if (gasChart) { gasChart.data.labels = data.history.labels; gasChart.data.datasets[0].data = data.history.gasData; gasChart.update(); }
         }
     }
 
@@ -287,7 +244,6 @@ if ($temp >= 30) {
         } catch (error) { console.error(error); }
     }
     
-    // ... (Fungsi loadHistoricalData, handleChartControlClick, start/stopRealtimeUpdates SAMA) ...
     async function loadHistoricalData(chart, sensorType, timeframe) {
         try {
             const response = await fetch(`get_chart_data.php?sensor=${sensorType}&timeframe=${timeframe}&_=${new Date().getTime()}`);
@@ -317,7 +273,6 @@ if ($temp >= 30) {
 
         if (timeframe === 'hourly') {
             updateChartXAxis(chart, 'Waktu (24 data)');
-            // Reset chart to current state immediately for better UX
             fetchRealtimeData(); 
             startRealtimeUpdates();
         } else {
@@ -326,21 +281,13 @@ if ($temp >= 30) {
         }
     }
 
-    function startRealtimeUpdates() {
-        if (fetchDataInterval) return;
-        fetchRealtimeData();
-        fetchDataInterval = setInterval(fetchRealtimeData, 5000);
-    }
-
-    function stopRealtimeUpdates() {
-        if (fetchDataInterval) { clearInterval(fetchDataInterval); fetchDataInterval = null; }
-    }
+    function startRealtimeUpdates() { if (fetchDataInterval) return; fetchRealtimeData(); fetchDataInterval = setInterval(fetchRealtimeData, 5000); }
+    function stopRealtimeUpdates() { if (fetchDataInterval) { clearInterval(fetchDataInterval); fetchDataInterval = null; } }
 
     setInterval(function(){
         const el = document.getElementById('realtime-clock');
         if(el) el.innerHTML=new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Jakarta' });
     },1000);
-
 </script>
 <script src="js/theme.js"></script>
 </body>
