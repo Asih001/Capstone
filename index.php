@@ -15,14 +15,14 @@ try {
     $latest = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($latest) $initial_data['latest'] = $latest;
 
-    // 2. Data AI (Ambil path gambar)
+    // 2. Data AI
     $stmtAI = $pdo->query("SELECT json_data, image_path, timestamp FROM ai_detections ORDER BY timestamp DESC LIMIT 1");
     $latestAI = $stmtAI->fetch(PDO::FETCH_ASSOC);
     if ($latestAI) {
         $ai_json = json_decode($latestAI['json_data'], true);
         $initial_data['ai']['fire_detected'] = (isset($ai_json['fire_detected']) && $ai_json['fire_detected']);
-        $initial_data['ai']['image'] = $latestAI['image_path']; // Simpan nama file saja
-        $initial_data['ai']['timestamp'] = $latestAI['timestamp']; // Simpan timestamp asli
+        $initial_data['ai']['image'] = $latestAI['image_path']; 
+        $initial_data['ai']['timestamp'] = $latestAI['timestamp'];
     }
 
     // 3. Data Grafik
@@ -43,7 +43,7 @@ try {
 
 } catch (PDOException $e) { }
 
-// Logika Status Awal PHP (Sama seperti sebelumnya)
+// Logika Status Awal PHP
 $gas = $initial_data['latest']['gas_level'];
 $temp = $initial_data['latest']['temperature'];
 $fire = $initial_data['ai']['fire_detected'];
@@ -51,12 +51,11 @@ $gas_cls = ''; $temp_cls = ''; $ai_cls = ''; $overall_status = 'normal'; $notif_
 
 if ($fire) { $ai_cls = 'danger'; $overall_status = 'danger'; $notif_msg = 'DANGER! Fire Detected by AI Camera!'; }
 if ($gas > 40) { $gas_cls = 'danger'; if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Gas level critical.'; } } 
-elseif ($gas > 35) { $gas_cls = 'warning'; if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Gas level high.'; } }
+elseif ($gas > 30) { $gas_cls = 'warning'; if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Gas level high.'; } }
 if ($temp >= 35) { $temp_cls = 'danger'; if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Temperature critical.'; } } 
 elseif ($temp >= 32) { $temp_cls = 'warning'; if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Temperature high.'; } }
 
-// Tentukan sumber gambar awal
-$initial_img_src = 'fire_centered.jpg'; // Default placeholder
+$initial_img_src = 'fire_centered.jpg';
 if ($fire && $initial_data['ai']['image']) {
     $initial_img_src = 'uploads/' . $initial_data['ai']['image'];
 } elseif (file_exists('fire_centered.jpg')) {
@@ -152,8 +151,9 @@ if ($fire && $initial_data['ai']['image']) {
     const initialTempData = <?php echo json_encode($initial_data['history']['tempData']); ?>;
     const initialGasData = <?php echo json_encode($initial_data['history']['gasData']); ?>;
     
-    // Ambil waktu deteksi terakhir dari PHP (konversi ke milliseconds)
+    // VARIABEL GLOBAL untuk menyimpan state gambar AI
     let lastAIDetectionTime = <?php echo $initial_data['ai']['fire_detected'] ? strtotime($initial_data['ai']['timestamp']) * 1000 : 0; ?>;
+    let currentAIImageSrc = "<?php echo $initial_img_src; ?>"; // Simpan src gambar saat ini
 
     function getSafeChartContext(id) { const c = document.getElementById(id); return c ? c.getContext('2d') : null; }
     function updateChartXAxis(chart, label) { if(chart) chart.options.scales.x.title = { display: true, text: label }; }
@@ -176,45 +176,43 @@ if ($fire && $initial_data['ai']['image']) {
     function updateDashboardUI(data) {
         if (!data || !data.latest) return;
 
-        // 1. Update Nilai Sensor
         const gas = Math.round(data.latest.gas_level);
         const temp = parseFloat(data.latest.temperature).toFixed(1);
         document.getElementById('gasValue').textContent = gas;
         document.getElementById('tempValue').textContent = temp;
 
-        // --- UPDATE LOGIKA AI (DENGAN TIMEOUT) ---
+        // --- LOGIKA UPDATE AI DIPERBAIKI ---
         let isFire = false;
-        let aiImageSrc = 'fire_centered.jpg'; // Default placeholder
-
+        
+        // 1. Cek data baru dari server
         if (data.ai && data.ai.fire_detected) {
-            // Update timestamp jika ada data baru dari server
-            // Kita parse timestamp dari database
             const dbTime = new Date(data.ai.timestamp).getTime();
             
-            // Update lastAIDetectionTime hanya jika data server lebih baru
+            // Jika ini adalah data deteksi yang lebih baru dari yang kita punya
             if (dbTime > lastAIDetectionTime) {
                 lastAIDetectionTime = dbTime;
+                // Update sumber gambar global hanya jika ada deteksi baru
+                if (data.ai.image) {
+                    currentAIImageSrc = 'uploads/' + data.ai.image;
+                }
             }
         }
 
-        // Cek selisih waktu sekarang dengan deteksi terakhir
+        // 2. Cek Timeout 5 Menit
         const now = new Date().getTime();
         const diff = now - lastAIDetectionTime;
-        const fiveMinutes = 5 * 60 * 1000; // 300.000 ms
+        const fiveMinutes = 5 * 60 * 1000;
 
-        // Jika deteksi terakhir masih dalam rentang 5 menit
         if (lastAIDetectionTime > 0 && diff <= fiveMinutes) {
+            // Masih dalam periode waspada (5 menit setelah deteksi terakhir)
             isFire = true;
-            // Gunakan gambar spesifik jika ada di data terbaru
-            if (data.ai && data.ai.image) {
-                aiImageSrc = 'uploads/' + data.ai.image;
-            }
         } else {
-            // Reset jika sudah timeout (> 5 menit)
+            // Sudah lewat 5 menit, reset ke normal
             isFire = false;
+            currentAIImageSrc = 'fire_centered.jpg'; // Reset gambar ke default
         }
 
-        // Update Tampilan Kartu AI
+        // 3. Render Tampilan Kartu AI
         const aiCard = document.getElementById('aiCard');
         const aiImage = document.getElementById('aiImage');
         const aiStatus = document.getElementById('aiStatus');
@@ -223,16 +221,17 @@ if ($fire && $initial_data['ai']['image']) {
             aiCard.className = 'card danger';
             aiStatus.style.color = '#C72B2B';
             aiStatus.innerHTML = "<i class='bx bxs-hot'></i> Fire Detected!";
-            aiImage.src = aiImageSrc; 
+            // Gunakan gambar yang tersimpan di variabel global + timestamp agar refresh
+            aiImage.src = currentAIImageSrc; 
         } else {
             aiCard.className = 'card'; 
             aiStatus.style.color = '#22A06B';
             aiStatus.innerHTML = "<i class='bx bx-check-circle'></i> Normal";
-            // Reset ke gambar default
+            // Reset gambar
             aiImage.src = 'fire_centered.jpg?t=' + new Date().getTime();
         }
 
-        // 3. Logika Status & Notifikasi
+        // 4. Logika Status Global & Notifikasi
         let gCls = '', tCls = '', overall = 'normal', msg = '';
         if (gas > 40) { gCls = 'danger'; overall = 'danger'; msg = 'ALERT! Gas critical.'; }
         else if (gas > 35) { gCls = 'warning'; overall = 'warning'; msg = 'Warning! Gas high.'; }
