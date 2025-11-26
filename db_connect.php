@@ -1,9 +1,9 @@
 <?php
 
-$host = '127.0.0.1';
+$host = '103.250.11.139';
 $db   = 'shieldweb';
-$user = 'shieldweb';          
-$pass = '12345678';              
+$user = 'shieldweb_remote';          
+$pass = 'P@ssw0rd';              
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
