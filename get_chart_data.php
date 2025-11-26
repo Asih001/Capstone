@@ -1,9 +1,12 @@
 <?php
+// File: get_chart_data.php
+// API GABUNGAN: Mengurus data real-time (hourly) DAN data historis (daily/weekly) dengan MySQL
+
 header('Content-Type: application/json');
 require_once 'db_connect.php'; 
 
-// Set timezone PHP agar sinkron jika ada manipulasi tanggal di sisi PHP
-date_default_timezone_set('Asia/Makassar'); 
+// Set timezone PHP ke WIB (UTC+7)
+date_default_timezone_set('Asia/Jakarta'); 
 
 $timeframe = $_GET['timeframe'] ?? 'hourly';
 $response = ['error' => null];
@@ -23,10 +26,10 @@ try {
             $response['latest'] = $latest;
         }
 
-        // 2. Ambil data RIWAYAT dengan Konversi Waktu ke UTC+8
-        // Menggunakan CONVERT_TZ(kolom, dari_zona_server, ke_zona_+08:00)
+        // 2. Ambil data RIWAYAT dengan Konversi Waktu ke UTC+7 (WIB)
+        // Menggunakan CONVERT_TZ(kolom, dari_zona_server, ke_zona_+07:00)
         $sqlHistory = "SELECT 
-                        DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+08:00'), '%H:%i') as time_label, 
+                        DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%H:%i') as time_label, 
                         temperature, 
                         gas_level 
                        FROM sensor_readings 
@@ -60,9 +63,9 @@ try {
         $sql = "";
 
         if ($timeframe === 'daily') {
-            // Rata-rata harian (UTC+8)
+            // Rata-rata harian (UTC+7)
             $sql = "SELECT 
-                        DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+08:00'), '%Y-%m-%d') as time_label, 
+                        DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%Y-%m-%d') as time_label, 
                         AVG($column) as value
                     FROM sensor_readings
                     WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
@@ -70,9 +73,9 @@ try {
                     ORDER BY time_label ASC";
                     
         } elseif ($timeframe === 'weekly') {
-            // Rata-rata mingguan (UTC+8)
+            // Rata-rata mingguan (UTC+7)
             $sql = "SELECT 
-                        DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+08:00'), '%Y-W%u') as time_label, 
+                        DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%Y-W%u') as time_label, 
                         AVG($column) as value
                     FROM sensor_readings
                     WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 1 YEAR)

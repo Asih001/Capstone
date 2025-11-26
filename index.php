@@ -1,6 +1,6 @@
 <?php
 // --- Konfigurasi Zona Waktu (PHP) ---
-date_default_timezone_set('Asia/Makassar'); // Set ke UTC+8
+date_default_timezone_set('Asia/Jakarta'); // Set ke UTC+7 (WIB)
 
 // --- Blok Kode untuk Mengambil Data AWAL (MySQL Version) ---
 require_once 'db_connect.php';
@@ -21,8 +21,8 @@ try {
     }
 
     // 2. Ambil Data Riwayat (24 data terakhir untuk grafik awal)
-    // Kita konversi timestamp ke UTC+8 (+08:00) sebelum di-format
-    $query_history = "SELECT DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+08:00'), '%H:%i') as time_label, 
+    // Konversi timestamp ke UTC+7 (+07:00) sebelum di-format
+    $query_history = "SELECT DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%H:%i') as time_label, 
                              temperature, gas_level
                       FROM sensor_readings
                       ORDER BY timestamp DESC
@@ -259,7 +259,7 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
 
     async function fetchRealtimeData() {
         try {
-            // Panggilan ke API gabungan
+            // Panggilan ke API gabungan (MySQL)
             const response = await fetch('get_chart_data.php?timeframe=hourly&_=' + new Date().getTime());
             if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
             const data = await response.json();
@@ -338,12 +338,12 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         }
     }
     
-    // Update Jam (UTC+8)
+    // Update Jam (UTC+7)
     setInterval(function(){
         const clockElement = document.getElementById('realtime-clock');
         if (clockElement) {
-           // Menggunakan 'en-GB' dan opsi timezone untuk memaksa tampilan WITA
-           clockElement.innerHTML=new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Makassar' });
+           // Menggunakan 'en-GB' dan opsi timezone untuk memaksa tampilan WIB (Asia/Jakarta)
+           clockElement.innerHTML=new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Jakarta' });
         }
     },1000);
 
