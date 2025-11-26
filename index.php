@@ -10,36 +10,22 @@ $initial_data = [
 ];
 
 try {
-    // 1. Data Sensor Terakhir
+    // 1. Data Sensor
     $stmt = $pdo->query("SELECT temperature, gas_level FROM sensor_readings ORDER BY timestamp DESC LIMIT 1");
     $latest = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($latest) $initial_data['latest'] = $latest;
 
-    // 2. Data AI Terakhir dengan Validasi Waktu
+    // 2. Data AI (Ambil path gambar)
     $stmtAI = $pdo->query("SELECT json_data, image_path, timestamp FROM ai_detections ORDER BY timestamp DESC LIMIT 1");
     $latestAI = $stmtAI->fetch(PDO::FETCH_ASSOC);
-    
     if ($latestAI) {
         $ai_json = json_decode($latestAI['json_data'], true);
-        $is_fire = (isset($ai_json['fire_detected']) && $ai_json['fire_detected']);
-        
-        // Hitung selisih waktu (dalam detik)
-        $db_time = strtotime($latestAI['timestamp']);
-        $now = time();
-        $diff = $now - $db_time;
-
-        // Logika: Hanya anggap kebakaran jika data kurang dari 5 menit (300 detik)
-        if ($is_fire && $diff <= 300) {
-            $initial_data['ai']['fire_detected'] = true;
-        } else {
-            $initial_data['ai']['fire_detected'] = false; // Reset jika data lama
-        }
-
-        $initial_data['ai']['image'] = $latestAI['image_path']; 
-        $initial_data['ai']['timestamp'] = $latestAI['timestamp']; // Simpan waktu asli DB
+        $initial_data['ai']['fire_detected'] = (isset($ai_json['fire_detected']) && $ai_json['fire_detected']);
+        $initial_data['ai']['image'] = $latestAI['image_path']; // Simpan nama file saja
+        $initial_data['ai']['timestamp'] = $latestAI['timestamp']; // Simpan timestamp asli
     }
 
-    // 3. Data Grafik Awal
+    // 3. Data Grafik
     $sqlHistory = "SELECT DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%H:%i') as time_label, temperature, gas_level 
                    FROM sensor_readings ORDER BY timestamp DESC LIMIT 24";
     $stmtHistory = $pdo->query($sqlHistory);
@@ -57,49 +43,24 @@ try {
 
 } catch (PDOException $e) { }
 
-// --- Logika Status Awal (PHP) ---
+// Logika Status Awal PHP (Sama seperti sebelumnya)
 $gas = $initial_data['latest']['gas_level'];
 $temp = $initial_data['latest']['temperature'];
 $fire = $initial_data['ai']['fire_detected'];
+$gas_cls = ''; $temp_cls = ''; $ai_cls = ''; $overall_status = 'normal'; $notif_msg = '';
 
-$gas_cls = ''; $temp_cls = ''; $ai_cls = ''; 
-$overall_status = 'normal'; $notif_msg = '';
+if ($fire) { $ai_cls = 'danger'; $overall_status = 'danger'; $notif_msg = 'DANGER! Fire Detected by AI Camera!'; }
+if ($gas > 40) { $gas_cls = 'danger'; if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Gas level critical.'; } } 
+elseif ($gas > 35) { $gas_cls = 'warning'; if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Gas level high.'; } }
+if ($temp >= 35) { $temp_cls = 'danger'; if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Temperature critical.'; } } 
+elseif ($temp >= 32) { $temp_cls = 'warning'; if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Temperature high.'; } }
 
-// Status AI
-if ($fire) {
-    $ai_cls = 'danger'; 
-    $overall_status = 'danger'; 
-    $notif_msg = 'DANGER! Fire Detected by AI Camera!';
-} else {
-    // Jika normal (atau data lama), pastikan kelas kosong
-    $ai_cls = '';
-}
-
-// Status Sensor
-if ($gas > 40) { 
-    $gas_cls = 'danger'; 
-    if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Gas level critical.'; }
-} elseif ($gas > 30) { 
-    $gas_cls = 'warning'; 
-    if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Gas level high.'; }
-}
-if ($temp >= 35) { 
-    $temp_cls = 'danger'; 
-    if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Temperature critical.'; }
-} elseif ($temp >= 32) { 
-    $temp_cls = 'warning'; 
-    if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Temperature high.'; }
-}
-
-// Tentukan Gambar Awal
+// Tentukan sumber gambar awal
 $initial_img_src = 'fire_centered.jpg'; // Default placeholder
-// Tampilkan gambar dari DB HANYA jika status api AKTIF (baru)
 if ($fire && $initial_data['ai']['image']) {
     $initial_img_src = 'uploads/' . $initial_data['ai']['image'];
-}elseif (file_exists('fire_centered.jpg')) {
-
+} elseif (file_exists('fire_centered.jpg')) {
     $initial_img_src = 'fire_centered.jpg';
-
 }
 ?>
 <!DOCTYPE html>
@@ -122,6 +83,7 @@ if ($fire && $initial_data['ai']['image']) {
                 <li class="nav-item"><a href="history.php"><i class='bx bx-history'></i><span>History</span></a></li>
                 <li class="nav-item"><a href="setting.php"><i class='bx bx-cog'></i><span>Setting</span></a></li>
             </ul>
+            <div class="logout nav-item"><a href="logout.php"><i class='bx bx-log-out'></i><span>Log Out</span></a></div>
         </div>
         <div class="main-content">
             <div class="header">
@@ -189,6 +151,9 @@ if ($fire && $initial_data['ai']['image']) {
     const initialLabels = <?php echo json_encode($initial_data['history']['labels']); ?>;
     const initialTempData = <?php echo json_encode($initial_data['history']['tempData']); ?>;
     const initialGasData = <?php echo json_encode($initial_data['history']['gasData']); ?>;
+    
+    // Ambil waktu deteksi terakhir dari PHP (konversi ke milliseconds)
+    let lastAIDetectionTime = <?php echo $initial_data['ai']['fire_detected'] ? strtotime($initial_data['ai']['timestamp']) * 1000 : 0; ?>;
 
     function getSafeChartContext(id) { const c = document.getElementById(id); return c ? c.getContext('2d') : null; }
     function updateChartXAxis(chart, label) { if(chart) chart.options.scales.x.title = { display: true, text: label }; }
@@ -211,31 +176,42 @@ if ($fire && $initial_data['ai']['image']) {
     function updateDashboardUI(data) {
         if (!data || !data.latest) return;
 
-        // Update Sensor Values
+        // 1. Update Nilai Sensor
         const gas = Math.round(data.latest.gas_level);
         const temp = parseFloat(data.latest.temperature).toFixed(1);
         document.getElementById('gasValue').textContent = gas;
         document.getElementById('tempValue').textContent = temp;
 
-        // --- UPDATE LOGIKA AI DENGAN TIMEOUT ---
+        // --- UPDATE LOGIKA AI (DENGAN TIMEOUT) ---
         let isFire = false;
-        let aiImageSrc = 'fire_centered.jpg'; // Default ke placeholder aman
+        let aiImageSrc = 'fire_centered.jpg'; // Default placeholder
 
         if (data.ai && data.ai.fire_detected) {
-            // Parse timestamp dari database (format YYYY-MM-DD HH:MM:SS)
-            // Kita asumsikan waktu server DB dan server PHP sinkron (UTC+7)
+            // Update timestamp jika ada data baru dari server
+            // Kita parse timestamp dari database
             const dbTime = new Date(data.ai.timestamp).getTime();
-            const now = new Date().getTime();
             
-            // Selisih waktu dalam milidetik
-            const diff = now - dbTime;
-            const fiveMinutes = 5 * 60 * 1000; // 300.000 ms
-
-            // Jika data kurang dari 5 menit yang lalu, maka VALID KEBAKARAN
-            if (diff <= fiveMinutes) {
-                isFire = true;
-                if (data.ai.image) aiImageSrc = 'uploads/' + data.ai.image;
+            // Update lastAIDetectionTime hanya jika data server lebih baru
+            if (dbTime > lastAIDetectionTime) {
+                lastAIDetectionTime = dbTime;
             }
+        }
+
+        // Cek selisih waktu sekarang dengan deteksi terakhir
+        const now = new Date().getTime();
+        const diff = now - lastAIDetectionTime;
+        const fiveMinutes = 5 * 60 * 1000; // 300.000 ms
+
+        // Jika deteksi terakhir masih dalam rentang 5 menit
+        if (lastAIDetectionTime > 0 && diff <= fiveMinutes) {
+            isFire = true;
+            // Gunakan gambar spesifik jika ada di data terbaru
+            if (data.ai && data.ai.image) {
+                aiImageSrc = 'uploads/' + data.ai.image;
+            }
+        } else {
+            // Reset jika sudah timeout (> 5 menit)
+            isFire = false;
         }
 
         // Update Tampilan Kartu AI
@@ -247,22 +223,20 @@ if ($fire && $initial_data['ai']['image']) {
             aiCard.className = 'card danger';
             aiStatus.style.color = '#C72B2B';
             aiStatus.innerHTML = "<i class='bx bxs-hot'></i> Fire Detected!";
-            // Tampilkan gambar kejadian
             aiImage.src = aiImageSrc; 
         } else {
             aiCard.className = 'card'; 
             aiStatus.style.color = '#22A06B';
             aiStatus.innerHTML = "<i class='bx bx-check-circle'></i> Normal";
-            // Kembalikan ke gambar default/aman
+            // Reset ke gambar default
             aiImage.src = 'fire_centered.jpg?t=' + new Date().getTime();
         }
 
-        // Update Status Global & Notifikasi
+        // 3. Logika Status & Notifikasi
         let gCls = '', tCls = '', overall = 'normal', msg = '';
         if (gas > 40) { gCls = 'danger'; overall = 'danger'; msg = 'ALERT! Gas critical.'; }
-        else if (gas > 30) { gCls = 'warning'; overall = 'warning'; msg = 'Warning! Gas high.'; }
+        else if (gas > 35) { gCls = 'warning'; overall = 'warning'; msg = 'Warning! Gas high.'; }
         
-        // Prioritas: Api > Suhu > Gas
         if (isFire) { overall = 'danger'; msg = 'DANGER! Fire Detected by AI!'; } 
         else if (temp >= 35) { tCls = 'danger'; if (overall != 'danger') { overall = 'danger'; msg = 'ALERT! Temp critical.'; } } 
         else if (temp >= 32) { tCls = 'warning'; if (overall == 'normal') { overall = 'warning'; msg = 'Warning! Temp high.'; } }
@@ -298,7 +272,6 @@ if ($fire && $initial_data['ai']['image']) {
         } catch (error) { console.error(error); }
     }
     
-    // ... (Fungsi loadHistoricalData, handleChartControlClick, dll SAMA SEPERTI SEBELUMNYA) ...
     async function loadHistoricalData(chart, sensorType, timeframe) {
         try {
             const response = await fetch(`get_chart_data.php?sensor=${sensorType}&timeframe=${timeframe}&_=${new Date().getTime()}`);
