@@ -1,7 +1,9 @@
 <?php
-
 header('Content-Type: application/json');
 require_once 'db_connect.php'; 
+
+// Set timezone PHP agar sinkron jika ada manipulasi tanggal di sisi PHP
+date_default_timezone_set('Asia/Makassar'); 
 
 $timeframe = $_GET['timeframe'] ?? 'hourly';
 $response = ['error' => null];
@@ -14,16 +16,23 @@ try {
             'error' => null
         ];
 
+        // 1. Ambil data TERAKHIR (tidak perlu convert TZ karena diambil mentah)
         $stmt = $pdo->query("SELECT temperature, gas_level FROM sensor_readings ORDER BY timestamp DESC LIMIT 1");
         $latest = $stmt->fetch();
         if ($latest) {
             $response['latest'] = $latest;
         }
 
-        $sqlHistory = "SELECT DATE_FORMAT(timestamp, '%H:%i') as time_label, temperature, gas_level 
+        // 2. Ambil data RIWAYAT dengan Konversi Waktu ke UTC+8
+        // Menggunakan CONVERT_TZ(kolom, dari_zona_server, ke_zona_+08:00)
+        $sqlHistory = "SELECT 
+                        DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+08:00'), '%H:%i') as time_label, 
+                        temperature, 
+                        gas_level 
                        FROM sensor_readings 
                        ORDER BY timestamp DESC 
                        LIMIT 24";
+                       
         $stmtHistory = $pdo->query($sqlHistory);
         $historyData = $stmtHistory->fetchAll();
 
@@ -39,6 +48,7 @@ try {
         $response['history']['gasData'] = array_reverse($gasData);
 
     } else {
+        // --- MODE HISTORIS ---
         $sensor_type = $_GET['sensor'] ?? '';
         if ($sensor_type !== 'heat' && $sensor_type !== 'gas') {
             throw new Exception('Invalid sensor type. Must be "heat" or "gas".');
@@ -50,16 +60,24 @@ try {
         $sql = "";
 
         if ($timeframe === 'daily') {
-            // Rata-rata harian (30 hari terakhir)
-            $sql = "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d') as time_label, AVG($column) as value
+            // Rata-rata harian (UTC+8)
+            $sql = "SELECT 
+                        DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+08:00'), '%Y-%m-%d') as time_label, 
+                        AVG($column) as value
                     FROM sensor_readings
                     WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-                    GROUP BY time_label ORDER BY time_label ASC";
+                    GROUP BY time_label 
+                    ORDER BY time_label ASC";
+                    
         } elseif ($timeframe === 'weekly') {
-            $sql = "SELECT DATE_FORMAT(timestamp, '%Y-W%u') as time_label, AVG($column) as value
+            // Rata-rata mingguan (UTC+8)
+            $sql = "SELECT 
+                        DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+08:00'), '%Y-W%u') as time_label, 
+                        AVG($column) as value
                     FROM sensor_readings
                     WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
-                    GROUP BY time_label ORDER BY time_label ASC";
+                    GROUP BY time_label 
+                    ORDER BY time_label ASC";
         } else {
             throw new Exception("Invalid timeframe.");
         }

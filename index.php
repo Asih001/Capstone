@@ -1,4 +1,8 @@
 <?php
+// --- Konfigurasi Zona Waktu (PHP) ---
+date_default_timezone_set('Asia/Makassar'); // Set ke UTC+8
+
+// --- Blok Kode untuk Mengambil Data AWAL (MySQL Version) ---
 require_once 'db_connect.php';
 
 $initial_data = [
@@ -7,6 +11,7 @@ $initial_data = [
 ];
 
 try {
+    // 1. Ambil Data Terakhir
     $query_latest = "SELECT temperature, gas_level FROM sensor_readings ORDER BY timestamp DESC LIMIT 1";
     $stmt_latest = $pdo->query($query_latest);
     $latest = $stmt_latest->fetch(PDO::FETCH_ASSOC);
@@ -15,7 +20,10 @@ try {
         $initial_data['latest'] = $latest;
     }
 
-    $query_history = "SELECT DATE_FORMAT(timestamp, '%H:%i') as time_label, temperature, gas_level
+    // 2. Ambil Data Riwayat (24 data terakhir untuk grafik awal)
+    // Kita konversi timestamp ke UTC+8 (+08:00) sebelum di-format
+    $query_history = "SELECT DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+08:00'), '%H:%i') as time_label, 
+                             temperature, gas_level
                       FROM sensor_readings
                       ORDER BY timestamp DESC
                       LIMIT 24";
@@ -37,7 +45,11 @@ try {
     $initial_data['history']['gasData'] = array_reverse($temp_gas_data);
 
 } catch (PDOException $e) {
+    // Error silent
 }
+// --- Akhir Blok Data AWAL ---
+
+// --- Logika Status AWAL ---
 $gas_level = $initial_data['latest']['gas_level'];
 $temperature = $initial_data['latest']['temperature'];
 $gas_status_class = ''; $temp_status_class = ''; $overall_status = 'normal'; $notification_message = '';
@@ -69,6 +81,7 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
                 <li class="nav-item"><a href="history.php"><i class='bx bx-history'></i><span>History</span></a></li>
                 <li class="nav-item"><a href="setting.php"><i class='bx bx-cog'></i><span>Setting</span></a></li>
             </ul>
+            <div class="logout nav-item"><a href="logout.php"><i class='bx bx-log-out'></i><span>Log Out</span></a></div>
         </div>
         <div class="main-content">
             <div class="header">
@@ -138,7 +151,6 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         return canvas ? canvas.getContext('2d') : null;
     }
 
-    // Fungsi untuk mengubah label sumbu X
     function updateChartXAxis(chart, newLabel) {
         if (chart && chart.options.scales.x.title) {
             chart.options.scales.x.title.text = newLabel;
@@ -147,7 +159,6 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         }
     }
     
-    // Inisialisasi grafik awal (Hourly)
     document.addEventListener('DOMContentLoaded', () => {
         const heatCtx = getSafeChartContext('heatChart');
         if (heatCtx) {
@@ -155,14 +166,7 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
                 type: 'line', 
                 data: { 
                     labels: initialLabels, 
-                    datasets: [{ 
-                        label: 'Temperature (°C)', 
-                        data: initialTempData, 
-                        borderColor: 'rgb(255, 99, 132)', 
-                        backgroundColor: 'rgba(255, 99, 132, 0.2)', 
-                        tension: 0.1, 
-                        fill: true 
-                    }] 
+                    datasets: [{ label: 'Temperature (°C)', data: initialTempData, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', tension: 0.1, fill: true }] 
                 }, 
                 options: { 
                     maintainAspectRatio: false, 
@@ -180,14 +184,7 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
                 type: 'line', 
                 data: { 
                     labels: initialLabels, 
-                    datasets: [{ 
-                        label: 'Gas Level (ppm)', 
-                        data: initialGasData, 
-                        borderColor: 'rgb(54, 162, 235)', 
-                        backgroundColor: 'rgba(54, 162, 235, 0.2)', 
-                        tension: 0.1, 
-                        fill: true 
-                    }] 
+                    datasets: [{ label: 'Gas Level (ppm)', data: initialGasData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.2)', tension: 0.1, fill: true }] 
                 }, 
                 options: { 
                     maintainAspectRatio: false, 
@@ -200,7 +197,6 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
             });
         }
 
-        // Fitur Resize saat sidebar berubah
         const sidebar = document.querySelector('.sidebar');
         if (sidebar) {
             sidebar.addEventListener('transitionend', () => {
@@ -215,7 +211,6 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         document.getElementById('gas-controls').addEventListener('click', handleChartControlClick);
     });
 
-    // --- Fungsi untuk update UI Kartu & Notifikasi (Real-time) ---
     function updateDashboardUI(data) {
         if (!data || !data.latest) { console.error("Invalid data for UI update"); return; }
         const latestGas = Math.round(data.latest.gas_level);
@@ -247,7 +242,6 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         }
     }
 
-    // --- Fungsi untuk update HANYA Grafik (Real-time) ---
     function updateChartsRealtime(data) {
         if (!data || !data.history || !Array.isArray(data.history.labels)) { console.error("Invalid data for chart update"); return; }
         
@@ -263,10 +257,9 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         }
     }
 
-    // --- Fungsi Fetch Data Berkala (Real-time) ---
     async function fetchRealtimeData() {
         try {
-            // Panggilan ke API gabungan (MySQL)
+            // Panggilan ke API gabungan
             const response = await fetch('get_chart_data.php?timeframe=hourly&_=' + new Date().getTime());
             if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
             const data = await response.json();
@@ -280,7 +273,6 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         }
     }
     
-    // --- Fungsi untuk MEMUAT DATA HISTORIS (Daily/Weekly) ---
     async function loadHistoricalData(chart, sensorType, timeframe) {
         try {
             const response = await fetch(`get_chart_data.php?sensor=${sensorType}&timeframe=${timeframe}&_=${new Date().getTime()}`);
@@ -292,10 +284,8 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
             if (chart) {
                 chart.data.labels = data.labels;
                 chart.data.datasets[0].data = data.data;
-                
                 const newXAxisLabel = (timeframe === 'daily') ? 'Tanggal (30 Hari Terakhir)' : 'Minggu (1 Tahun Terakhir)';
                 updateChartXAxis(chart, newXAxisLabel);
-                
                 chart.update();
             }
         } catch (error) {
@@ -303,7 +293,6 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         }
     }
 
-    // --- Fungsi untuk MENANGANI KLIK KONTROL CHART ---
     function handleChartControlClick(event) {
         if (event.target.tagName !== 'SPAN') return;
         const clickedButton = event.target;
@@ -320,8 +309,13 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         if (timeframe === 'hourly') {
             updateChartXAxis(chart, 'Waktu (24 data terakhir)');
             
-            // Untuk mode hourly, kita fetch ulang data realtime agar grafik kembali ke kondisi awal
-            fetchRealtimeData(); 
+            let initialChartLabels = (sensorType === 'heat') ? initialLabels : initialLabels;
+            let initialChartData = (sensorType === 'heat') ? initialTempData : initialGasData;
+            
+            chart.data.labels = initialChartLabels;
+            chart.data.datasets[0].data = initialChartData;
+            chart.update();
+            
             startRealtimeUpdates(); 
         } else {
             stopRealtimeUpdates(); 
@@ -329,7 +323,6 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         }
     }
 
-    // --- Fungsi untuk Memulai dan Menghentikan Interval ---
     function startRealtimeUpdates() {
         if (fetchDataInterval) return; 
         console.log("Starting real-time updates...");
@@ -345,11 +338,12 @@ elseif ($temperature >= 27) { $temp_status_class = 'warning'; if ($overall_statu
         }
     }
     
-    // --- Update Jam (selalu berjalan) ---
+    // Update Jam (UTC+8)
     setInterval(function(){
         const clockElement = document.getElementById('realtime-clock');
         if (clockElement) {
-           clockElement.innerHTML=new Date().toLocaleTimeString('en-GB');
+           // Menggunakan 'en-GB' dan opsi timezone untuk memaksa tampilan WITA
+           clockElement.innerHTML=new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Makassar' });
         }
     },1000);
 
