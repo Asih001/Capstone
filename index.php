@@ -76,17 +76,17 @@ if ($fire) {
 }
 
 // Status Sensor
-if ($gas > 250) { 
+if ($gas > 40) { 
     $gas_cls = 'danger'; 
     if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Gas level critical.'; }
-} elseif ($gas > 150) { 
+} elseif ($gas > 30) { 
     $gas_cls = 'warning'; 
     if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Gas level high.'; }
 }
-if ($temp >= 30) { 
+if ($temp >= 35) { 
     $temp_cls = 'danger'; 
     if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Temperature critical.'; }
-} elseif ($temp >= 27) { 
+} elseif ($temp >= 32) { 
     $temp_cls = 'warning'; 
     if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Temperature high.'; }
 }
