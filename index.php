@@ -154,32 +154,25 @@ if ($fire && $initial_data['ai']['image']) {
     const initialTempData = <?php echo json_encode($initial_data['history']['tempData']); ?>;
     const initialGasData = <?php echo json_encode($initial_data['history']['gasData']); ?>;
     
-    // --- VARIABEL STATE DETEKSI AI ---
-    // Mengambil nilai awal dari PHP
+    // LOGIKA AI: Ambil data awal dari PHP
+    // Pastikan format timestamp PHP (detik) dikonversi ke JS (milidetik) dengan benar
     let lastAIDetectionTime = <?php echo $initial_data['ai']['fire_detected'] ? strtotime($initial_data['ai']['timestamp']) * 1000 : 0; ?>;
-    // Mengambil path gambar awal dari PHP
     let currentAIImageSrc = "<?php echo $initial_img_src; ?>"; 
+
+    // DEBUG: Cek waktu awal
+    console.log("Initial AI Time:", lastAIDetectionTime, new Date(lastAIDetectionTime).toLocaleString());
 
     function getSafeChartContext(id) { const c = document.getElementById(id); return c ? c.getContext('2d') : null; }
     function updateChartXAxis(chart, label) { if(chart) chart.options.scales.x.title = { display: true, text: label }; }
     
     document.addEventListener('DOMContentLoaded', () => {
         const heatCtx = getSafeChartContext('heatChart');
-        if (heatCtx) {
-            heatChart = new Chart(heatCtx, { type: 'line', data: { labels: initialLabels, datasets: [{ label: 'Temperature (°C)', data: initialTempData, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', tension: 0.1, fill: true }] }, options: { maintainAspectRatio: false, animation: false, scales: { x: { title: { display: true, text: 'Waktu (24 data terakhir)' } }, y: { beginAtZero: false, title: { display: true, text: 'Temperature (°C)'} } } } });
-        }
+        if (heatCtx) heatChart = new Chart(heatCtx, { type: 'line', data: { labels: initialLabels, datasets: [{ label: 'Temperature (°C)', data: initialTempData, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', tension: 0.1, fill: true }] }, options: { maintainAspectRatio: false, animation: false, scales: { x: { title: { display: true, text: 'Waktu (24 data terakhir)' } }, y: { beginAtZero: false, title: { display: true, text: 'Temperature (°C)'} } } } });
         const gasCtx = getSafeChartContext('gasChart');
-        if (gasCtx) {
-            gasChart = new Chart(gasCtx, { type: 'line', data: { labels: initialLabels, datasets: [{ label: 'Gas Level (ppm)', data: initialGasData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.2)', tension: 0.1, fill: true }] }, options: { maintainAspectRatio: false, animation: false, scales: { x: { title: { display: true, text: 'Waktu (24 data terakhir)' } }, y: { beginAtZero: true, title: { display: true, text: 'Gas (ppm)'} } } } });
-        }
+        if (gasCtx) gasChart = new Chart(gasCtx, { type: 'line', data: { labels: initialLabels, datasets: [{ label: 'Gas Level (ppm)', data: initialGasData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.2)', tension: 0.1, fill: true }] }, options: { maintainAspectRatio: false, animation: false, scales: { x: { title: { display: true, text: 'Waktu (24 data terakhir)' } }, y: { beginAtZero: true, title: { display: true, text: 'Gas (ppm)'} } } } });
 
         const sidebar = document.querySelector('.sidebar');
-        if (sidebar) {
-            sidebar.addEventListener('transitionend', () => {
-                if (heatChart) heatChart.resize();
-                if (gasChart) gasChart.resize();
-            });
-        }
+        if (sidebar) sidebar.addEventListener('transitionend', () => { if (heatChart) heatChart.resize(); if (gasChart) gasChart.resize(); });
 
         startRealtimeUpdates(); 
         document.getElementById('heat-controls').addEventListener('click', handleChartControlClick);
@@ -195,34 +188,51 @@ if ($fire && $initial_data['ai']['image']) {
         document.getElementById('gasValue').textContent = gas;
         document.getElementById('tempValue').textContent = temp;
 
-        // --- LOGIKA UPDATE AI (DIPERBAIKI) ---
+        // --- LOGIKA AI DIPERBAIKI (DEBUGGING MODE) ---
         
-        // Cek apakah ada data baru dari server yang menunjukkan api
-        if (data.ai && data.ai.fire_detected) {
-            const dbTime = new Date(data.ai.timestamp).getTime();
+        // Cek data baru dari server
+        if (data.ai && data.ai.timestamp) {
+            // Server mengirim string waktu MySQL (YYYY-MM-DD HH:MM:SS)
+            // Kita harus parsing ini dengan hati-hati. 
+            // Mengganti spasi dengan 'T' agar kompatibel ISO 8601 untuk JS Date
+            const dbTimeString = data.ai.timestamp.replace(' ', 'T'); 
+            const dbTime = new Date(dbTimeString).getTime(); // Konversi ke ms
             
-            // Jika data server lebih baru atau sama dengan yang kita punya, update state
-            if (dbTime >= lastAIDetectionTime) {
-                lastAIDetectionTime = dbTime;
-                // Update gambar hanya jika ada path baru yang dikirim
-                if (data.ai.image) {
-                    currentAIImageSrc = 'uploads/' + data.ai.image;
+            // DEBUG: Lihat waktu yang diterima
+            // console.log("Server AI Time:", dbTime, data.ai.timestamp);
+
+            // Jika timestamp server valid dan ada deteksi api
+            if (!isNaN(dbTime) && data.ai.fire_detected) {
+                // Update jika ini data baru ATAU sama dengan yang terakhir
+                if (dbTime >= lastAIDetectionTime) {
+                    lastAIDetectionTime = dbTime;
+                    if (data.ai.image) {
+                        currentAIImageSrc = 'uploads/' + data.ai.image;
+                    }
                 }
             }
         }
 
         // Hitung mundur 5 menit
+        // Kita gunakan waktu browser sekarang. Asumsi waktu browser dan server sinkron (UTC+7)
+        // Jika tidak sinkron, ini bisa jadi sumber masalah.
+        // Solusi lebih aman: Hitung diff berdasarkan waktu server jika dikirim, tapi pakai Date.now() dulu.
         const now = new Date().getTime();
+        
+        // Offset zona waktu: Pastikan 'now' sesuai dengan zona waktu data (jika perlu)
+        // Tapi biasanya selisih relatif (now - last) tetap valid asalkan keduanya di zona waktu sama.
+        
         const diff = now - lastAIDetectionTime;
         const fiveMinutes = 5 * 60 * 1000; // 300.000 ms
 
         let isFireState = false;
 
-        // Jika waktu deteksi terakhir valid DAN masih kurang dari 5 menit
+        // DEBUG: Logika penentu status
+        // console.log("Diff:", diff, "Max:", fiveMinutes, "LastAI:", lastAIDetectionTime);
+
         if (lastAIDetectionTime > 0 && diff <= fiveMinutes) {
             isFireState = true;
         } else {
-            // Sudah lewat 5 menit, reset state
             isFireState = false;
         }
 
@@ -232,26 +242,22 @@ if ($fire && $initial_data['ai']['image']) {
         const aiStatus = document.getElementById('aiStatus');
 
         if (isFireState) {
-            // MODE BAHAYA: Tampilkan merah & gambar kejadian
             aiCard.className = 'card danger';
             aiStatus.style.color = '#C72B2B';
             aiStatus.innerHTML = "<i class='bx bxs-hot'></i> Fire Detected!";
             
-            // Paksa gunakan gambar dari variabel global yang persisten
-            // Tambahkan timestamp hanya jika path berubah untuk menghindari reload berkedip
-            // PERBAIKAN UTAMA: Gunakan currentAIImageSrc, BUKAN reset ke fire_centered
-            if (!aiImage.src.includes(currentAIImageSrc)) {
-                 aiImage.src = currentAIImageSrc + '?t=' + new Date().getTime();
+            // Pastikan src gambar benar dan tidak di-reset
+            // Gunakan .indexOf untuk cek agar query string (?t=...) tidak mengganggu
+            if (aiImage.src.indexOf(currentAIImageSrc) === -1) {
+                 console.log("Updating AI Image to:", currentAIImageSrc);
+                 aiImage.src = currentAIImageSrc; // Hapus timestamp sementara untuk tes
             }
         } else {
-            // MODE NORMAL
             aiCard.className = 'card'; 
             aiStatus.style.color = '#22A06B';
             aiStatus.innerHTML = "<i class='bx bx-check-circle'></i> Normal";
             
-            // Reset ke gambar default/aman hanya saat status normal
-            // Cek agar tidak reload berulang kali jika sudah default
-            if (!aiImage.src.includes('fire_centered.jpg')) {
+            if (aiImage.src.indexOf('fire_centered.jpg') === -1) {
                 aiImage.src = 'fire_centered.jpg?t=' + new Date().getTime();
             }
         }
@@ -261,7 +267,6 @@ if ($fire && $initial_data['ai']['image']) {
         if (gas > 40) { gCls = 'danger'; overall = 'danger'; msg = 'ALERT! Gas critical.'; }
         else if (gas > 35) { gCls = 'warning'; overall = 'warning'; msg = 'Warning! Gas high.'; }
         
-        // Gunakan isFireState (hasil hitungan waktu) bukan data.ai.fire_detected mentah
         if (isFireState) { overall = 'danger'; msg = 'DANGER! Fire Detected by AI!'; } 
         else if (temp >= 35) { tCls = 'danger'; if (overall != 'danger') { overall = 'danger'; msg = 'ALERT! Temp critical.'; } } 
         else if (temp >= 32) { tCls = 'warning'; if (overall == 'normal') { overall = 'warning'; msg = 'Warning! Temp high.'; } }
