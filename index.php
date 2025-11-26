@@ -161,12 +161,16 @@ if ($initial_data['ai']['image']) {
             </div>
         </div>
     </div>
-
 <script>
     let heatChart = null, gasChart = null, fetchDataInterval = null; 
     const initialLabels = <?php echo json_encode($initial_data['history']['labels']); ?>;
     const initialTempData = <?php echo json_encode($initial_data['history']['tempData']); ?>;
     const initialGasData = <?php echo json_encode($initial_data['history']['gasData']); ?>;
+    
+    // Timestamp PHP (waktu server) saat halaman dimuat, dikonversi ke ms
+    // Kita pakai ini sebagai acuan awal lastAIDetectionTime
+    // PHP timestamp dalam detik, JS dalam milidetik
+    let lastAIDetectionTime = <?php echo $initial_data['ai']['fire_detected'] ? strtotime($initial_data['ai']['timestamp']) * 1000 : 0; ?>;
 
     function getSafeChartContext(id) { const c = document.getElementById(id); return c ? c.getContext('2d') : null; }
     function updateChartXAxis(chart, label) { if(chart) chart.options.scales.x.title = { display: true, text: label }; }
@@ -189,53 +193,65 @@ if ($initial_data['ai']['image']) {
     function updateDashboardUI(data) {
         if (!data || !data.latest) return;
 
-        // 1. Update Nilai Sensor
         const gas = Math.round(data.latest.gas_level);
         const temp = parseFloat(data.latest.temperature).toFixed(1);
         document.getElementById('gasValue').textContent = gas;
         document.getElementById('tempValue').textContent = temp;
 
-        // 2. Update Kartu AI (LOGIKA GAMBAR DIPERBAIKI)
-        if (data.ai) {
-            const aiCard = document.getElementById('aiCard');
-            const aiImage = document.getElementById('aiImage');
-            const aiStatus = document.getElementById('aiStatus');
-            const isFire = data.ai.fire_detected;
-
-            // Update Warna & Teks Status
-            if (isFire) {
-                aiCard.className = 'card danger';
-                aiStatus.style.color = '#C72B2B';
-                aiStatus.innerHTML = "<i class='bx bxs-hot'></i> Fire Detected!";
-            } else {
-                aiCard.className = 'card'; 
-                aiStatus.style.color = '#22A06B';
-                aiStatus.innerHTML = "<i class='bx bx-check-circle'></i> Normal";
-            }
-
-            // Update Gambar
-            // Prioritas 1: Gambar spesifik dari database (uploads/...)
-            // Prioritas 2: Gambar umum terbaru di root (fire_centered.jpg)
-            // Jika kedua file tersebut tidak ada di server, onerror akan menampilkan placeholder
-            
-            let newSrc = '';
-            if (data.ai.image) {
-                newSrc = 'uploads/' + data.ai.image;
-            } else {
-                newSrc = 'fire_centered.jpg'; 
-            }
-            
-            // Cek apakah src berubah untuk menghindari flicker, tapi tambahkan timestamp jika perlu refresh
-            // Disini kita selalu tambah timestamp agar realtime update jika file ditimpa
-            aiImage.src = newSrc + '?t=' + new Date().getTime();
+        // LOGIKA BARU: Update Kartu AI dengan Timeout 5 Menit
+        let isFire = false;
+        let aiImageSrc = 'fire_centered.jpg';
+        
+        // 1. Cek apakah ada data AI dari server
+        if (data.ai && data.ai.fire_detected) {
+            // Update waktu deteksi terakhir (gunakan timestamp dari server jika ada, atau waktu klien)
+            // Kita asumsikan jika fire_detected=true, itu baru saja terjadi
+            lastAIDetectionTime = new Date().getTime(); 
+            isFire = true;
+            if (data.ai.image) aiImageSrc = 'uploads/' + data.ai.image;
         }
 
-        // 3. Logika Status & Notifikasi
+        // 2. Cek apakah sudah lewat 5 menit (300.000 ms) sejak deteksi terakhir
+        const timeSinceLastDetection = new Date().getTime() - lastAIDetectionTime;
+        const fiveMinutes = 5 * 60 * 1000;
+
+        if (timeSinceLastDetection > fiveMinutes) {
+            // Jika sudah > 5 menit, paksa status jadi Normal
+            isFire = false;
+            // Opsional: Kembalikan gambar ke default atau placeholder kosong
+             aiImageSrc = 'fire_centered.jpg'; // Atau gambar default "aman"
+        } else if (lastAIDetectionTime > 0) {
+             // Masih dalam masa 5 menit setelah deteksi terakhir, pertahankan status bahaya
+             // Jika data.ai.fire_detected false (api baru padam), kita tetap tampilkan bahaya sampai timeout habis
+             // Atau Anda bisa memilih untuk langsung menormalkan jika api padam. 
+             // KODE INI: Mempertahankan status bahaya selama 5 menit SETELAH deteksi terakhir.
+             isFire = true; 
+        }
+
+        const aiCard = document.getElementById('aiCard');
+        const aiImage = document.getElementById('aiImage');
+        const aiStatus = document.getElementById('aiStatus');
+
+        if (isFire) {
+            aiCard.className = 'card danger';
+            aiStatus.style.color = '#C72B2B';
+            aiStatus.innerHTML = "<i class='bx bxs-hot'></i> Fire Detected!";
+            // Update gambar hanya jika masih dalam mode bahaya
+            aiImage.src = aiImageSrc + '?t=' + new Date().getTime(); 
+        } else {
+            aiCard.className = 'card'; 
+            aiStatus.style.color = '#22A06B';
+            aiStatus.innerHTML = "<i class='bx bx-check-circle'></i> Normal";
+            // Saat normal, tampilkan gambar default atau stream kosong
+             aiImage.src = 'fire_centered.jpg?t=' + new Date().getTime();
+        }
+
+        // 3. Logika Status Sensor & Notifikasi
         let gCls = '', tCls = '', overall = 'normal', msg = '';
         if (gas > 250) { gCls = 'danger'; overall = 'danger'; msg = 'ALERT! Gas critical.'; }
         else if (gas > 150) { gCls = 'warning'; overall = 'warning'; msg = 'Warning! Gas high.'; }
         
-        if (data.ai && data.ai.fire_detected) { overall = 'danger'; msg = 'DANGER! Fire Detected by AI!'; } 
+        if (isFire) { overall = 'danger'; msg = 'DANGER! Fire Detected by AI!'; } // Gunakan isFire yang sudah dihitung waktu
         else if (temp >= 30) { tCls = 'danger'; if (overall != 'danger') { overall = 'danger'; msg = 'ALERT! Temp critical.'; } } 
         else if (temp >= 27) { tCls = 'warning'; if (overall == 'normal') { overall = 'warning'; msg = 'Warning! Temp high.'; } }
 
@@ -314,7 +330,6 @@ if ($initial_data['ai']['image']) {
         const el = document.getElementById('realtime-clock');
         if(el) el.innerHTML=new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Jakarta' });
     },1000);
-
 </script>
 <script src="js/theme.js"></script>
 </body>
