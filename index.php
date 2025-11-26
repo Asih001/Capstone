@@ -1,20 +1,21 @@
 <?php
+// --- Konfigurasi Zona Waktu ---
 date_default_timezone_set('Asia/Jakarta'); 
 require_once 'db_connect.php';
 
 $initial_data = [
     'latest' => ['temperature' => 0, 'gas_level' => 0],
-    'ai' => ['fire_detected' => false, 'image' => null], 
+    'ai' => ['fire_detected' => false, 'image' => null], // Inisialisasi Data AI
     'history' => ['labels' => [], 'tempData' => [], 'gasData' => []],
 ];
 
 try {
-    // 1. Data Sensor
+    // 1. Data Sensor Terakhir
     $stmt = $pdo->query("SELECT temperature, gas_level FROM sensor_readings ORDER BY timestamp DESC LIMIT 1");
     $latest = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($latest) $initial_data['latest'] = $latest;
 
-    // 2. Data AI (Ambil path gambar)
+    // 2. Data AI Terakhir (PHP)
     $stmtAI = $pdo->query("SELECT json_data, image_path FROM ai_detections ORDER BY timestamp DESC LIMIT 1");
     $latestAI = $stmtAI->fetch(PDO::FETCH_ASSOC);
     if ($latestAI) {
@@ -23,7 +24,7 @@ try {
         $initial_data['ai']['image'] = $latestAI['image_path']; // Simpan nama file saja
     }
 
-    // 3. Data Grafik
+    // 3. Data Grafik Awal
     $sqlHistory = "SELECT DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%H:%i') as time_label, temperature, gas_level 
                    FROM sensor_readings ORDER BY timestamp DESC LIMIT 24";
     $stmtHistory = $pdo->query($sqlHistory);
@@ -41,23 +42,41 @@ try {
 
 } catch (PDOException $e) { }
 
-// Logika Status Awal PHP (Sama seperti sebelumnya)
+// --- Logika Status Awal ---
 $gas = $initial_data['latest']['gas_level'];
 $temp = $initial_data['latest']['temperature'];
 $fire = $initial_data['ai']['fire_detected'];
-$gas_cls = ''; $temp_cls = ''; $ai_cls = ''; $overall_status = 'normal'; $notif_msg = '';
 
-if ($fire) { $ai_cls = 'danger'; $overall_status = 'danger'; $notif_msg = 'DANGER! Fire Detected by AI Camera!'; }
-if ($gas > 250) { $gas_cls = 'danger'; if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Gas level critical.'; } } 
-elseif ($gas > 150) { $gas_cls = 'warning'; if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Gas level high.'; } }
-if ($temp >= 30) { $temp_cls = 'danger'; if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Temperature critical.'; } } 
-elseif ($temp >= 27) { $temp_cls = 'warning'; if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Temperature high.'; } }
+// Tentukan Status Global (Termasuk AI)
+$gas_cls = ''; $temp_cls = ''; $ai_cls = ''; 
+$overall_status = 'normal'; $notif_msg = '';
 
-// Tentukan sumber gambar awal
-$initial_img_src = 'fire_centered.jpg'; // Default
+if ($fire) {
+    $ai_cls = 'danger'; 
+    $overall_status = 'danger'; 
+    $notif_msg = 'DANGER! Fire Detected by AI Camera!';
+}
+if ($gas > 250) { 
+    $gas_cls = 'danger'; 
+    if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Gas level critical.'; }
+} elseif ($gas > 150) { 
+    $gas_cls = 'warning'; 
+    if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Gas level high.'; }
+}
+if ($temp >= 30) { 
+    $temp_cls = 'danger'; 
+    if ($overall_status != 'danger') { $overall_status = 'danger'; $notif_msg = 'ALERT! Temperature critical.'; }
+} elseif ($temp >= 27) { 
+    $temp_cls = 'warning'; 
+    if ($overall_status == 'normal') { $overall_status = 'warning'; $notif_msg = 'Warning! Temperature high.'; }
+}
+
+// Tentukan sumber gambar awal dengan fallback yang aman
+$initial_img_src = 'https://via.placeholder.com/640x480/000000/FFFFFF?text=No+Image'; // Fallback dasar
 if ($initial_data['ai']['image']) {
-    // Jika database punya record gambar, gunakan itu dari folder uploads
     $initial_img_src = 'uploads/' . $initial_data['ai']['image'];
+} elseif (file_exists('fire_centered.jpg')) {
+    $initial_img_src = 'fire_centered.jpg';
 }
 ?>
 <!DOCTYPE html>
@@ -118,7 +137,8 @@ if ($initial_data['ai']['image']) {
                                      src="<?php echo $initial_img_src; ?>" 
                                      alt="AI Feed" 
                                      style="width: 100%; height: 100%; object-fit: cover; position: absolute; top:0; left:0;"
-                                     onerror="this.src='fire_centered.jpg'"> </div>
+                                     onerror="this.src='https://via.placeholder.com/640x480/000000/FFFFFF?text=No+Image+Available'">
+                            </div>
                             <p>AI Detection</p>
                             <p id="aiStatus" class="status-indicator" style="<?php echo $fire ? 'color:#C72B2B' : 'color:#22A06B'; ?>">
                                 <i class='bx <?php echo $fire ? 'bxs-hot' : 'bx-check-circle'; ?>'></i>
@@ -194,17 +214,23 @@ if ($initial_data['ai']['image']) {
             }
 
             // Update Gambar
-            // Jika DB mengirim nama file (contoh: 'ai_17326099.jpg'), kita tambahkan prefix 'uploads/'
-            // Jika DB null, kita gunakan 'fire_centered.jpg' yang ada di root
-            let newSrc = 'fire_centered.jpg'; 
+            // Prioritas 1: Gambar spesifik dari database (uploads/...)
+            // Prioritas 2: Gambar umum terbaru di root (fire_centered.jpg)
+            // Jika kedua file tersebut tidak ada di server, onerror akan menampilkan placeholder
+            
+            let newSrc = '';
             if (data.ai.image) {
                 newSrc = 'uploads/' + data.ai.image;
+            } else {
+                newSrc = 'fire_centered.jpg'; 
             }
-            // Tambahkan timestamp agar browser tidak cache gambar lama
+            
+            // Cek apakah src berubah untuk menghindari flicker, tapi tambahkan timestamp jika perlu refresh
+            // Disini kita selalu tambah timestamp agar realtime update jika file ditimpa
             aiImage.src = newSrc + '?t=' + new Date().getTime();
         }
 
-        // 3. Logika Status & Notifikasi (Sama seperti sebelumnya)
+        // 3. Logika Status & Notifikasi
         let gCls = '', tCls = '', overall = 'normal', msg = '';
         if (gas > 250) { gCls = 'danger'; overall = 'danger'; msg = 'ALERT! Gas critical.'; }
         else if (gas > 150) { gCls = 'warning'; overall = 'warning'; msg = 'Warning! Gas high.'; }
@@ -288,6 +314,7 @@ if ($initial_data['ai']['image']) {
         const el = document.getElementById('realtime-clock');
         if(el) el.innerHTML=new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Jakarta' });
     },1000);
+
 </script>
 <script src="js/theme.js"></script>
 </body>
