@@ -3,7 +3,7 @@
 header('Content-Type: application/json');
 require_once 'db_connect.php'; 
 
-// Aktifkan error reporting untuk debugging (sementara)
+// Aktifkan error reporting untuk debugging
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
 
@@ -39,19 +39,30 @@ try {
                     }
                 }
 
-                // Nama file unik
-                $filename = 'ai_' . time() . '.jpg'; 
+                // --- PERUBAHAN DI SINI ---
+                // Mengambil nama file asli dari pengirim (Python: fire_centered.jpg)
+                // Bukan menggunakan time() lagi.
+                $original_name = basename($image_file['name']);
+                
+                // Sanitasi nama file (hapus karakter aneh selain huruf, angka, titik, strip, underscore)
+                $filename = preg_replace("/[^a-zA-Z0-9\._-]/", "", $original_name);
+                
+                // Fallback jika nama file kosong/error
+                if (empty($filename)) {
+                    $filename = 'fire_centered.jpg';
+                }
+
                 $target_file = $upload_dir . $filename;
 
-                // Pindahkan file
+                // Pindahkan file (akan menimpa file lama jika namanya sama)
                 if (move_uploaded_file($image_file['tmp_name'], $target_file)) {
-                    $image_path_db = $filename; 
+                    $image_path_db = $filename; // Ini akan menyimpan 'fire_centered.jpg' ke DB
                     
-                    // Update gambar utama (overwrite)
+                    // Opsional: Copy juga ke root folder jika dashboard mengakses root
                     $main_image_path = $base_dir . '/fire_centered.jpg';
                     copy($target_file, $main_image_path); 
                 } else {
-                     throw new Exception("Failed to move uploaded file. Check folder permissions.");
+                      throw new Exception("Failed to move uploaded file. Check folder permissions.");
                 }
             }
 
@@ -60,7 +71,7 @@ try {
             $stmt = $pdo->prepare($sql);
             if ($stmt->execute([':json' => $json_payload, ':img' => $image_path_db])) {
                 http_response_code(201);
-                $response = ['success' => true, 'message' => 'AI Data & Image saved'];
+                $response = ['success' => true, 'message' => 'AI Data & Image saved as ' . $image_path_db];
             } else {
                 throw new Exception("Failed to insert AI data DB.");
             }
@@ -69,7 +80,7 @@ try {
             $response['message'] = 'Missing json_data';
         }
 
-    // SKENARIO B: RAW JSON (Sensor)
+    // SKENARIO B: RAW JSON (Sensor / Data tanpa gambar)
     } else {
         $json_input = file_get_contents('php://input');
         $data = json_decode($json_input, true);
