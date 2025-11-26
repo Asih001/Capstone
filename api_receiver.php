@@ -32,7 +32,7 @@ try {
                 $base_dir = __DIR__; 
                 $upload_dir = $base_dir . '/uploads/';
                 
-                // Buat folder jika belum ada
+                // Buat folder uploads jika belum ada
                 if (!is_dir($upload_dir)) {
                     if (!mkdir($upload_dir, 0755, true)) {
                         throw new Exception("Failed to create uploads directory. Check permissions.");
@@ -40,25 +40,18 @@ try {
                 }
 
                 // --- PERUBAHAN DI SINI ---
-                // Mengambil nama file asli dari pengirim (Python: fire_centered.jpg)
-                // Bukan menggunakan time() lagi.
-                $original_name = basename($image_file['name']);
+                // FORCE FIX NAME: Selalu gunakan nama 'fire_centered.jpg'
+                // Kita abaikan nama asli dari pengirim untuk memastikan konsistensi.
+                $filename = 'fire_centered.jpg'; 
                 
-                // Sanitasi nama file (hapus karakter aneh selain huruf, angka, titik, strip, underscore)
-                $filename = preg_replace("/[^a-zA-Z0-9\._-]/", "", $original_name);
-                
-                // Fallback jika nama file kosong/error
-                if (empty($filename)) {
-                    $filename = 'fire_centered.jpg';
-                }
-
                 $target_file = $upload_dir . $filename;
 
-                // Pindahkan file (akan menimpa file lama jika namanya sama)
+                // Pindahkan file (akan menimpa/overwrite file lama jika ada)
                 if (move_uploaded_file($image_file['tmp_name'], $target_file)) {
-                    $image_path_db = $filename; // Ini akan menyimpan 'fire_centered.jpg' ke DB
+                    $image_path_db = $filename; // Simpan 'fire_centered.jpg' ke DB
                     
-                    // Opsional: Copy juga ke root folder jika dashboard mengakses root
+                    // (Opsional) Copy juga ke root folder jika dashboard lama mengakses root
+                    // Jika tidak perlu, baris copy() ini bisa dihapus.
                     $main_image_path = $base_dir . '/fire_centered.jpg';
                     copy($target_file, $main_image_path); 
                 } else {
