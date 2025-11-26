@@ -1,17 +1,21 @@
 <?php
-// --- Konfigurasi Database MySQL ---
-require_once 'db_connect.php'; // Menggunakan $pdo
+// --- Konfigurasi Zona Waktu (PHP) ---
+date_default_timezone_set('Asia/Jakarta'); // Set ke UTC+7 (WIB)
+
+// --- Koneksi Database ---
+require_once 'db_connect.php';
 
 // 1. Cek Filter Tanggal
 $filter_date = $_GET['filter_date'] ?? null;
 $params = []; 
 
 // 2. Siapkan Query Dasar
+// Perhatikan penggunaan CONVERT_TZ untuk mengubah waktu database ke UTC+7
 $base_query = "
 SELECT 
     id, timestamp, event_type, temperature, gas_level, json_data, image_path,
-    DATE_FORMAT(timestamp, '%d %M %Y') as date,
-    DATE_FORMAT(timestamp, '%H:%i') as time
+    DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%d %M %Y') as date,
+    DATE_FORMAT(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00'), '%H:%i') as time
 FROM (
     SELECT id, timestamp, 'Sensor' as event_type, temperature, gas_level, NULL as json_data, NULL as image_path FROM sensor_readings
     UNION ALL
@@ -25,10 +29,14 @@ $order_clause = " ORDER BY timestamp DESC";
 
 // 3. Terapkan Logika Filter
 if ($filter_date !== null && !empty($filter_date)) {
+    // --- MODE FILTER AKTIF ---
     $page_title = "History untuk " . date('d F Y', strtotime($filter_date));
-    $where_clause = " WHERE DATE(timestamp) = :filter_date ";
+    
+    // Filter juga harus dikonversi ke UTC+7 agar cocok dengan inputan user
+    $where_clause = " WHERE DATE(CONVERT_TZ(timestamp, @@session.time_zone, '+07:00')) = :filter_date ";
     $params[':filter_date'] = $filter_date;
 } else {
+    // --- MODE DEFAULT ---
     $page_title = "100 History Terbaru";
     $limit_clause = " LIMIT 100";
 }
@@ -93,7 +101,7 @@ try {
                             <thead>
                                 <tr>
                                     <th>ID</th>
-                                    <th>Waktu</th> <th>Tipe Input</th>
+                                    <th>Waktu (WIB)</th> <th>Tipe Input</th>
                                     <th>Detail</th>
                                     <th>Status</th>
                                 </tr>
@@ -131,29 +139,20 @@ try {
                                             <td>
                                                 <?php
                                                 $fire_detected = false;
-                                                $ai_data = $row['json_data'];
+                                                $ai_data = is_string($row['json_data']) ? json_decode($row['json_data']) : $row['json_data'];
                                                 
-                                                // Decode JSON jika masih string (MySQL mungkin return string)
-                                                if (is_string($ai_data)) {
-                                                    $decoded = json_decode($ai_data, true); // true = array asosiatif
-                                                    // Handle double encoded JSON (kasus umum)
-                                                    if (is_string($decoded)) {
-                                                        $ai_data = json_decode($decoded, true);
-                                                    } else {
-                                                        $ai_data = $decoded;
-                                                    }
-                                                }
-
-                                                if (is_array($ai_data) && isset($ai_data['fire_detected']) && $ai_data['fire_detected']) {
-                                                    $fire_detected = true;
+                                                if (is_object($ai_data)) {
+                                                    if (isset($ai_data->fire_detected) && $ai_data->fire_detected) $fire_detected = true;
+                                                } elseif (is_array($ai_data)) {
+                                                    if (isset($ai_data['fire_detected']) && $ai_data['fire_detected']) $fire_detected = true;
                                                 }
 
                                                 echo 'Pengecekan Api: <strong>' . ($fire_detected ? 'Iya' : 'Tidak Ada') . '</strong>';
                                                 
-                                                // Tampilkan Link Gambar jika ada
+                                                // --- TAMPILKAN LINK GAMBAR ---
                                                 if (!empty($row['image_path'])) {
                                                     $img_url = 'uploads/' . htmlspecialchars($row['image_path']);
-                                                    echo '<br><a href="' . $img_url . '" target="_blank" style="font-size:12px; color:#0052CC;">Lihat Gambar</a>';
+                                                    echo '<br><a href="' . $img_url . '" target="_blank" style="font-size:12px; color:#0052CC;">Lihat Bukti Gambar</a>';
                                                 }
                                                 ?>
                                             </td>
