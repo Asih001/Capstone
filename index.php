@@ -96,6 +96,10 @@ $initial_img_src = 'fire_centered.jpg'; // Default placeholder
 // Tampilkan gambar dari DB HANYA jika status api AKTIF (baru)
 if ($fire && $initial_data['ai']['image']) {
     $initial_img_src = 'uploads/' . $initial_data['ai']['image'];
+}elseif (file_exists('fire_centered.jpg')) {
+
+    $initial_img_src = 'fire_centered.jpg';
+
 }
 ?>
 <!DOCTYPE html>
