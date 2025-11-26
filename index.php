@@ -255,13 +255,13 @@ if ($fire && $initial_data['ai']['image']) {
 
         // Update Status Global & Notifikasi
         let gCls = '', tCls = '', overall = 'normal', msg = '';
-        if (gas > 250) { gCls = 'danger'; overall = 'danger'; msg = 'ALERT! Gas critical.'; }
-        else if (gas > 150) { gCls = 'warning'; overall = 'warning'; msg = 'Warning! Gas high.'; }
+        if (gas > 40) { gCls = 'danger'; overall = 'danger'; msg = 'ALERT! Gas critical.'; }
+        else if (gas > 30) { gCls = 'warning'; overall = 'warning'; msg = 'Warning! Gas high.'; }
         
         // Prioritas: Api > Suhu > Gas
         if (isFire) { overall = 'danger'; msg = 'DANGER! Fire Detected by AI!'; } 
-        else if (temp >= 30) { tCls = 'danger'; if (overall != 'danger') { overall = 'danger'; msg = 'ALERT! Temp critical.'; } } 
-        else if (temp >= 27) { tCls = 'warning'; if (overall == 'normal') { overall = 'warning'; msg = 'Warning! Temp high.'; } }
+        else if (temp >= 35) { tCls = 'danger'; if (overall != 'danger') { overall = 'danger'; msg = 'ALERT! Temp critical.'; } } 
+        else if (temp >= 32) { tCls = 'warning'; if (overall == 'normal') { overall = 'warning'; msg = 'Warning! Temp high.'; } }
 
         document.getElementById('gasCard').className = 'card ' + gCls;
         document.getElementById('tempCard').className = 'card ' + tCls;
